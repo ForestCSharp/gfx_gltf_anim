@@ -123,7 +123,7 @@ fn main() {
 
         nodes.push(
             Node {
-                parent: node_parents[&node.index()], //TODO: Don't rely on old parent fetching code here
+                parent: node_parents[&node.index()],
                 children: children_indices,
                 translation: translation,
                 rotation: rotation,
@@ -383,9 +383,9 @@ fn main() {
         &cam_up
     );
 
-    let perspective_matrix = glm::perspective(
-        degrees_to_radians(90.0f32),
+    let mut perspective_matrix = glm::perspective(
         (INITIAL_WIDTH / INITIAL_HEIGHT) as f32,
+        degrees_to_radians(90.0f32),
         0.001,
         10000.0
     );
@@ -880,11 +880,11 @@ fn main() {
         if s_state {
             forward -= 1.0;
         }
-        if a_state {
-            right -= 1.0;
-        }
         if d_state { 
             right += 1.0;
+        }
+        if a_state {
+            right -= 1.0;
         }
         if e_state {
             up += 1.0;
@@ -941,10 +941,15 @@ fn main() {
             pipeline = new_pipeline;
             pipeline_layout = new_pipeline_layout;
 
+            let new_aspect_ratio = {
+                let ratio = (extent.width / extent.height) as f32;
+                ratio
+            };
+
             //Update Projection matrix (possible change in aspect ratio)
             camera_uniform_struct.proj_matrix = glm::perspective(
+                new_aspect_ratio,
                 degrees_to_radians(90.0f32),
-                (extent.width / extent.height) as f32,
                 0.001,
                 10000.0
             ).into();
