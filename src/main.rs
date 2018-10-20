@@ -383,8 +383,8 @@ fn main() {
         &cam_up
     );
 
-    let mut perspective_matrix = glm::perspective(
-        (INITIAL_WIDTH / INITIAL_HEIGHT) as f32,
+    let perspective_matrix = glm::perspective(
+        INITIAL_WIDTH as f32 / INITIAL_HEIGHT as f32,
         degrees_to_radians(90.0f32),
         0.001,
         10000.0
@@ -941,14 +941,9 @@ fn main() {
             pipeline = new_pipeline;
             pipeline_layout = new_pipeline_layout;
 
-            let new_aspect_ratio = {
-                let ratio = (extent.width as f32 / extent.height as f32);
-                ratio
-            };
-
             //Update Projection matrix (possible change in aspect ratio)
             camera_uniform_struct.proj_matrix = glm::perspective(
-                new_aspect_ratio,
+                extent.width as f32 / extent.height as f32,
                 degrees_to_radians(90.0f32),
                 0.001,
                 10000.0
