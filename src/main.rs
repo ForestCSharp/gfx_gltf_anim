@@ -942,7 +942,7 @@ fn main() {
             pipeline_layout = new_pipeline_layout;
 
             let new_aspect_ratio = {
-                let ratio = (extent.width / extent.height) as f32;
+                let ratio = (extent.width as f32 / extent.height as f32);
                 ratio
             };
 
