@@ -1,0 +1,29 @@
+[package]
+name = "gfx_gltf_anim"
+version = "0.1.0"
+authors = ["Forest Sharp <forestcollinssharp@gmail.com>"]
+build = "build.rs"
+
+[features]
+default = []
+dx12 = ["gfx-backend-dx12"]
+vulkan = ["gfx-backend-vulkan"]
+metal = ["gfx-backend-metal"]
+
+[dependencies]
+num = "*"
+winit = "0.16"
+image = "0.19"
+nalgebra-glm = "0.1"
+time = "0.1.40"
+glsl-to-spirv = "0.1"
+gfx-hal = { git = "https://github.com/gfx-rs/gfx.git"}
+gltf = "0.11.2"
+rand = "0.5.5"
+memoffset = "0.2.1"
+
+gfx-backend-vulkan = { git = "https://github.com/gfx-rs/gfx.git", optional = true, features = ["glsl-to-spirv"] }
+[target.'cfg(windows)'.dependencies]
+gfx-backend-dx12 = { git = "https://github.com/gfx-rs/gfx.git", optional = true}
+[target.'cfg(target_os = "macos")'.dependencies]
+gfx-backend-metal = { git = "https://github.com/gfx-rs/gfx.git", optional = true}
