@@ -6,24 +6,27 @@ build = "build.rs"
 
 [features]
 default = []
+dx11 = ["gfx-backend-dx11"]
 dx12 = ["gfx-backend-dx12"]
 vulkan = ["gfx-backend-vulkan"]
 metal = ["gfx-backend-metal"]
 
 [dependencies]
 num = "*"
-winit = "0.16"
+winit = "0.17"
 image = "0.19"
 nalgebra-glm = "0.1"
 time = "0.1.40"
 glsl-to-spirv = "0.1"
-gfx-hal = { git = "https://github.com/gfx-rs/gfx.git"}
 gltf = "0.11.2"
 rand = "0.5.5"
 memoffset = "0.2.1"
 
+gfx-hal = { git = "https://github.com/gfx-rs/gfx.git"}
+
 gfx-backend-vulkan = { git = "https://github.com/gfx-rs/gfx.git", optional = true, features = ["glsl-to-spirv"] }
 [target.'cfg(windows)'.dependencies]
+gfx-backend-dx11 = { git = "https://github.com/gfx-rs/gfx.git", optional = true}
 gfx-backend-dx12 = { git = "https://github.com/gfx-rs/gfx.git", optional = true}
 [target.'cfg(target_os = "macos")'.dependencies]
 gfx-backend-metal = { git = "https://github.com/gfx-rs/gfx.git", optional = true}

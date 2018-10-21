@@ -3,6 +3,8 @@
     allow(dead_code, unused_extern_crates, unused_imports)
 )]
 
+#[cfg(feature = "dx11")]
+extern crate gfx_backend_dx11 as back;
 #[cfg(feature = "dx12")]
 extern crate gfx_backend_dx12 as back;
 #[cfg(feature = "metal")]
@@ -28,7 +30,7 @@ use std::collections::HashMap;
 
 use hal::{Instance, PhysicalDevice, Device, DescriptorPool, Surface, Swapchain};
 
-#[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
+#[cfg(any(feature = "vulkan", feature = "dx11", feature = "dx12", feature = "metal"))]
 fn main() {
 
     println!("Current Target: {}", env!("TARGET"));
@@ -321,7 +323,7 @@ fn main() {
     };
 
     //Just pick the first GPU we find for now
-    let mut adapter = adapters.remove(0);
+    let adapter = adapters.remove(0);
     let memory_types = adapter.physical_device.memory_properties().memory_types;
     let _limits = adapter.physical_device.limits();
 
@@ -531,7 +533,7 @@ fn main() {
             depth_format,
             hal::image::Tiling::Optimal,
             hal::image::Usage::DEPTH_STENCIL_ATTACHMENT,
-            hal::image::StorageFlags::empty(),
+            hal::image::ViewCapabilities::empty()
         ).unwrap();
 
         let depth_mem_reqs = device.get_image_requirements(&depth_image);
@@ -672,15 +674,12 @@ fn main() {
                     hal::pso::EntryPoint::<back::Backend> {
                         entry: "main",
                         module: &vs_module,
-                        specialization: &[hal::pso::Specialization {
-                            id: 0,
-                            value: hal::pso::Constant::F32(1.0),
-                        }],
+                        specialization: hal::pso::Specialization::default(),
                     },
                     hal::pso::EntryPoint::<back::Backend> {
                         entry: "main",
                         module: &fs_module,
-                        specialization: &[],
+                        specialization: hal::pso::Specialization::default(),
                     },
                 );
 
@@ -1067,7 +1066,7 @@ fn main() {
         command_pool.reset();
 
         let frame: hal::SwapImageIndex = {
-            match swap_chain.acquire_image(hal::FrameSync::Semaphore(&mut frame_semaphore)) {
+            match swap_chain.acquire_image(!0, hal::FrameSync::Semaphore(&mut frame_semaphore)) {
                 Ok(i) => i,
                 Err(_) => {
                     needs_resize = true;
