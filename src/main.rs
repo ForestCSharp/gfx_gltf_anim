@@ -36,77 +36,78 @@ fn main() {
     //Load GLTF Model
     let (gltf_model, buffers, _) = gltf::import("data/CesiumMan.gltf").unwrap();
 
-    //TODO: Handle multiple meshes/primitives (need to wrap VBuf/Ibuf/Option<Skeleton> into struct)
-    let mut vertices_vec = Vec::new();
-    let mut indices_vec = Vec::new();
-    let mut skeleton : GpuSkeleton = GpuSkeleton::new();
+    let mut mesh = Mesh::new();
 
-    //TODO: store each animation (Only getting first anim for now)
-    let mut animations : Vec<gltf::Animation> = gltf_model.animations().collect();
-    let anim = animations.remove(0);
+    for anim in gltf_model.animations() {
 
-    //TODO: move to struct: An animation is simply a bunch of translation, rotation, and scale channels
-    let mut anim_channels = Vec::new();
-    let mut anim_duration = 0.0;
+        let mut anim_channels = Vec::new();
+        let mut anim_duration = 0.0;
 
-    //Store the animation
-    for channel in anim.channels() {       
-        //Channel Reader
-        let channel_reader = channel.reader(|buffer| Some(&buffers[buffer.index()]));
+        //Store the animation
+        for channel in anim.channels() {       
+            //Channel Reader
+            let channel_reader = channel.reader(|buffer| Some(&buffers[buffer.index()]));
 
-        let node_index = channel.target().node().index();
+            let node_index = channel.target().node().index();
 
-        let times = channel_reader.read_inputs().unwrap();
+            let times = channel_reader.read_inputs().unwrap();
 
-        match channel_reader.read_outputs().unwrap() {
-            gltf::animation::util::ReadOutputs::Translations(mut translations) => {
-                
-                let mut translation_keyframes = Vec::new();
-                
-                for (time, translation) in times.zip(translations) {
-                    translation_keyframes.push((time, translation));
-                }
+            match channel_reader.read_outputs().unwrap() {
+                gltf::animation::util::ReadOutputs::Translations(mut translations) => {
+                    
+                    let mut translation_keyframes = Vec::new();
+                    
+                    for (time, translation) in times.zip(translations) {
+                        translation_keyframes.push((time, translation));
+                    }
 
-                anim_channels.push((node_index, AnimChannel {
-                    keyframes : ChannelType::TranslationChannel(translation_keyframes),
-                    current_left_keyframe: 0,
-                }));
-            },
-            gltf::animation::util::ReadOutputs::Rotations(mut rotations) => {
-                
-                let mut rotation_keyframes = Vec::new();
+                    anim_channels.push((node_index, AnimChannel {
+                        keyframes : ChannelType::TranslationChannel(translation_keyframes),
+                        current_left_keyframe: 0,
+                    }));
+                },
+                gltf::animation::util::ReadOutputs::Rotations(mut rotations) => {
+                    
+                    let mut rotation_keyframes = Vec::new();
 
-                for (time, rotation) in times.zip(rotations.into_f32()) {
-                    rotation_keyframes.push((time, rotation));
-                }
+                    for (time, rotation) in times.zip(rotations.into_f32()) {
+                        rotation_keyframes.push((time, rotation));
+                    }
 
-                anim_channels.push((node_index, AnimChannel {
-                    keyframes: ChannelType::RotationChannel(rotation_keyframes),
-                    current_left_keyframe: 0,
-                }));
-            },
-            gltf::animation::util::ReadOutputs::Scales(mut scales) => {
-                
-                let mut scale_keyframes = Vec::new();
-                
-                for (time, scale) in times.zip(scales) {
-                    scale_keyframes.push((time, scale));
-                }
+                    anim_channels.push((node_index, AnimChannel {
+                        keyframes: ChannelType::RotationChannel(rotation_keyframes),
+                        current_left_keyframe: 0,
+                    }));
+                },
+                gltf::animation::util::ReadOutputs::Scales(mut scales) => {
+                    
+                    let mut scale_keyframes = Vec::new();
+                    
+                    for (time, scale) in times.zip(scales) {
+                        scale_keyframes.push((time, scale));
+                    }
 
-                anim_channels.push((node_index, AnimChannel {
-                    keyframes: ChannelType::ScaleChannel(scale_keyframes),
-                    current_left_keyframe: 0,
-                }));
-            },
-            _ => {
-                println!("Unsupported Anim Channel");
-            },
+                    anim_channels.push((node_index, AnimChannel {
+                        keyframes: ChannelType::ScaleChannel(scale_keyframes),
+                        current_left_keyframe: 0,
+                    }));
+                },
+                _ => {
+                    println!("Unsupported Anim Channel");
+                },
+            }
+
+            //Get Anim Duration
+            for time_val in channel_reader.read_inputs().unwrap() {
+            if time_val > anim_duration { anim_duration = time_val; }
+            }
         }
 
-        //Get Anim Duration
-        for time_val in channel_reader.read_inputs().unwrap() {
-           if time_val > anim_duration { anim_duration = time_val; }
-        }
+        println!("AHHHH");
+        mesh.skeleton.animations.push ( Animation {
+            channels: anim_channels,
+            duration: anim_duration,
+        });
     }
 
     //Store all nodes (their index == index in vec, parent index, children indices, and transform)
@@ -147,12 +148,15 @@ fn main() {
         //When a node contains a skin, all its meshes contain JOINTS_0 and WEIGHTS_0 attributes.
 
         match node.mesh() {
-            Some(mesh) => {
-                for primitive in mesh.primitives() {
+            Some(gltf_mesh) => {
+                for primitive in gltf_mesh.primitives() {
 
                     let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
                     let pos_iter = reader.read_positions().unwrap(); 
-                    //TODO: Better error handling if no positions
+                    //TODO: Better error handling if no positions (return Err("Mesh requires positions"))
+
+                    //Normals
+                    let mut norm_iter = reader.read_normals();
 
                     //Optional Colors
                     let mut col_iter = match reader.read_colors(0) {
@@ -160,14 +164,14 @@ fn main() {
                         None => None,
                     };
 
-                    //Optional UVs (TODO: Warn if mesh doesn't have these)
+                    //Optional UVs
                     let mut uv_iter = match reader.read_tex_coords(0) {
                         Some(uv_iter) => Some(uv_iter.into_f32()),
-                        None => None,
+                        None => {
+                            println!("Warning: Mesh is missing UVs"); 
+                            None
+                        },
                     };
-
-                    //Normals
-                    let mut norm_iter = reader.read_normals();
 
                     //if skinned, we need to get the JOINTS_0 and WEIGHTS_0 attributes
                     let mut joints_iter = match reader.read_joints(0) {
@@ -228,10 +232,7 @@ fn main() {
                             None => [0.0, 0.0, 0.0, 0.0],
                         };
 
-                        //println!("Joint Indices: {:?}", joint_indices);
-                        //println!("Joint Weights: {:?} \n", joint_weights);
-
-                        vertices_vec.push( Vertex { 
+                        mesh.vertices.push( Vertex { 
                             a_pos: pos,
                             a_col: col,
                             a_uv: uv,
@@ -242,7 +243,7 @@ fn main() {
                     }
 
                     //Indices
-                    indices_vec = reader.read_indices().map( |read_indices| {
+                    mesh.indices = reader.read_indices().map( |read_indices| {
                         read_indices.into_u32().collect()
                     }).unwrap();
                     //TODO: Better handling of this (not all GLTF meshes have indices)
@@ -253,13 +254,14 @@ fn main() {
 
         //skinning: build up skeleton
         if has_mesh && is_skinned {
+
             match node.skin() {
                 Some(skin) => {
                     let reader = skin.reader(|buffer| Some(&buffers[buffer.index()]));
                     //If "None", then each joint's inv_bind_matrix is assumed to be 4x4 Identity matrix
                     let mut inverse_bind_matrices = reader.read_inverse_bind_matrices();
 
-                    skeleton.inverse_root_transform = glm::inverse(&node.transform().matrix().into());
+                    mesh.skeleton.inverse_root_transform = glm::inverse(&node.transform().matrix().into());
                     
                     //Joints are nodes
                     for joint in skin.joints() {
@@ -284,16 +286,16 @@ fn main() {
                         //Build up skeleton
                         let joint_transform : glm::Mat4 = compute_global_transform(joint.index(), &nodes);
 
-                        let joint_matrix = skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
+                        let joint_matrix = mesh.skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
 
-                        skeleton.bones.push(GpuBone {
+                        mesh.skeleton.bones.push(GpuBone {
                             joint_matrix: joint_matrix.into(),
                         });
 
-                        skeleton.inverse_bind_matrices.push(inverse_bind_matrix);
+                        mesh.skeleton.inverse_bind_matrices.push(inverse_bind_matrix);
 
                         //map index
-                        skeleton.gpu_index_to_node_index.insert(skeleton.bones.len() - 1, joint.index());
+                        mesh.skeleton.gpu_index_to_node_index.insert(mesh.skeleton.bones.len() - 1, joint.index());
                     }
                 },
                 None => {},
@@ -377,11 +379,7 @@ fn main() {
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
     let mut cam_up = glm::vec3(0., 1., 0.);
 
-    let view_matrix = glm::look_at_rh(
-        &cam_pos,
-        &(cam_pos + cam_forward),
-        &cam_up
-    );
+    let view_matrix = glm::Mat4::identity();
 
     let perspective_matrix = glm::perspective(
         INITIAL_WIDTH as f32 / INITIAL_HEIGHT as f32,
@@ -422,7 +420,7 @@ fn main() {
     //Skeleton Uniform Buffer Setup
     //TODO: Don't try to create this buffer if no bones (len() == 0)
     //FIXME: Causes crash if no bones (i.e. unskinned models)
-    let skeleton_uniform_len = (std::cmp::max(1,skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
+    let skeleton_uniform_len = (std::cmp::max(1,mesh.skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
     let skeleton_uniform_unbound = device.create_buffer(skeleton_uniform_len, hal::buffer::Usage::UNIFORM).unwrap();
     let skeleton_uniform_req = device.get_buffer_requirements(&skeleton_uniform_unbound);
 
@@ -439,7 +437,7 @@ fn main() {
 
     {
         let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-        uniform_writer[0..skeleton.bones.len()].copy_from_slice(&skeleton.bones);
+        uniform_writer[0..mesh.skeleton.bones.len()].copy_from_slice(&mesh.skeleton.bones);
         device.release_mapping_writer(uniform_writer);
     }
 
@@ -461,7 +459,7 @@ fn main() {
 
     //Vertex Buffer Setup
     let buffer_stride = std::mem::size_of::<Vertex>() as u64;
-    let buffer_len = vertices_vec.len() as u64 * buffer_stride;
+    let buffer_len = mesh.vertices.len() as u64 * buffer_stride;
     let buffer_unbound = device.create_buffer(buffer_len, hal::buffer::Usage::VERTEX).unwrap();
     let buffer_req = device.get_buffer_requirements(&buffer_unbound);
 
@@ -478,13 +476,13 @@ fn main() {
 
     {
         let mut vertices = device.acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_req.size).unwrap();
-        vertices[0..vertices_vec.len()].copy_from_slice(&vertices_vec);
+        vertices[0..mesh.vertices.len()].copy_from_slice(&mesh.vertices);
         device.release_mapping_writer(vertices);
     }
 
     //Index Buffer Setup
     let index_buffer_stride = std::mem::size_of::<u32>() as u64;
-    let index_buffer_len = indices_vec.len() as u64 * index_buffer_stride;
+    let index_buffer_len = mesh.indices.len() as u64 * index_buffer_stride;
     let index_buffer_unbound = device.create_buffer(index_buffer_len, hal::buffer::Usage::INDEX).unwrap();
     let index_buffer_req = device.get_buffer_requirements(&index_buffer_unbound);
 
@@ -500,7 +498,7 @@ fn main() {
     let index_buffer = device.bind_buffer_memory(&index_buffer_memory, 0, index_buffer_unbound).unwrap();
     {
         let mut indices = device.acquire_mapping_writer::<u32>(&index_buffer_memory, 0..index_buffer_req.size).unwrap();
-        indices[0..indices_vec.len()].copy_from_slice(&indices_vec);
+        indices[0..mesh.indices.len()].copy_from_slice(&mesh.indices);
         device.release_mapping_writer(indices);
     }
 
@@ -620,7 +618,11 @@ fn main() {
                             hal::image::ViewKind::D2, 
                             *format, 
                             hal::format::Swizzle::NO, 
-                            COLOR_RANGE.clone(),
+                            hal::image::SubresourceRange {
+                                aspects: hal::format::Aspects::COLOR,
+                                levels: 0..1,
+                                layers: 0..1,
+                            },
                             )
                             .unwrap();
                             (image, rtv)
@@ -977,7 +979,7 @@ fn main() {
 
         cam_pos += move_vec;
 
-        camera_uniform_struct.view_matrix = glm::look_at_rh(
+        camera_uniform_struct.view_matrix = glm::look_at(
             &cam_pos,
             &(cam_pos + cam_forward),
             &cam_up
@@ -996,12 +998,14 @@ fn main() {
         }
         current_anim_time += delta_time * 1.75;
 
-        if current_anim_time > anim_duration as f64 {
+        //TODO: remove hardcoded 1st index
+        if current_anim_time > mesh.skeleton.animations[0].duration as f64 {
             current_anim_time = 0.0;
         }
 
+        //TODO: remove hardcoded 1st index
         //Animate Bones
-        for (node_index, channel) in &mut anim_channels {
+        for (node_index, channel) in &mut mesh.skeleton.animations[0].channels {
 
             //Get Current Left & Right Keyframes
             let mut left_key_index = channel.current_left_keyframe;
@@ -1047,15 +1051,15 @@ fn main() {
         }
 
         //Now compute each matrix and upload to GPU
-        for (bone_index, mut bone) in skeleton.bones.iter_mut().enumerate() {
-            if let Some(node_index) = skeleton.gpu_index_to_node_index.get(&bone_index) {
-                bone.joint_matrix = (skeleton.inverse_root_transform * compute_global_transform(*node_index, &nodes) * skeleton.inverse_bind_matrices[bone_index]).into();
+        for (bone_index, mut bone) in mesh.skeleton.bones.iter_mut().enumerate() {
+            if let Some(node_index) = mesh.skeleton.gpu_index_to_node_index.get(&bone_index) {
+                bone.joint_matrix = (mesh.skeleton.inverse_root_transform * compute_global_transform(*node_index, &nodes) * mesh.skeleton.inverse_bind_matrices[bone_index]).into();
             }
         }
 
         {
             let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-            uniform_writer[0..skeleton.bones.len()].copy_from_slice(&skeleton.bones);
+            uniform_writer[0..mesh.skeleton.bones.len()].copy_from_slice(&mesh.skeleton.bones);
             device.release_mapping_writer(uniform_writer);
         }
         
@@ -1108,7 +1112,7 @@ fn main() {
                     ],
                 );
 
-                encoder.draw_indexed(0..indices_vec.len() as u32, 0, 0..100);
+                encoder.draw_indexed(0..mesh.indices.len() as u32, 0, 0..100);
             }
 
             cmd_buffer.finish()
@@ -1137,12 +1141,6 @@ fn main() {
 const INITIAL_WIDTH : f64 = 1280.0;
 const INITIAL_HEIGHT : f64 = 720.0;
 
-const COLOR_RANGE: hal::image::SubresourceRange = hal::image::SubresourceRange {
-    aspects: hal::format::Aspects::COLOR,
-    levels: 0..1,
-    layers: 0..1,
-};
-
 #[derive(Debug, Clone, Copy)]
 struct Vertex {
     a_pos: [f32; 3],
@@ -1153,23 +1151,24 @@ struct Vertex {
     a_joint_weights: [f32; 4],
 }
 
-#[derive(Debug, Clone)]
-struct GpuSkeleton {
+struct Skeleton {
     //Flat Array of Bone Matrices (what we update and send to GPU)
     bones: Vec<GpuBone>,
     //Maps above indices to GLTF node indices (separate so that the above Vec can be copied directly to the GPU)
     gpu_index_to_node_index: HashMap<usize, usize>,
     inverse_bind_matrices: Vec<glm::Mat4>,
     inverse_root_transform: glm::Mat4,
+    animations: Vec<Animation>,
 }
 
-impl GpuSkeleton {
-    fn new() -> GpuSkeleton {
-        GpuSkeleton {
+impl Skeleton {
+    fn new() -> Skeleton {
+        Skeleton {
             bones: Vec::new(),
             gpu_index_to_node_index: HashMap::new(),
             inverse_bind_matrices: Vec::new(),
             inverse_root_transform: glm::Mat4::identity(),
+            animations: Vec::new(),
         }
     }
 }
@@ -1226,6 +1225,27 @@ impl ChannelType {
             ChannelType::ScaleChannel(s) => s.len(),
         }
     }
+}
+
+struct Mesh {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    skeleton: Skeleton, //TODO: Make Option
+}
+
+impl Mesh {
+    fn new() -> Mesh {
+        Mesh {
+            vertices : Vec::new(),
+            indices : Vec::new(),
+            skeleton : Skeleton::new(),
+        }
+    }
+}
+
+struct Animation {
+    channels : Vec<(usize, AnimChannel)>,
+    duration : f32,
 }
 
 fn timestamp() -> f64 {
