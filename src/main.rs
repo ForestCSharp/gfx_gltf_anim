@@ -3,14 +3,13 @@
     allow(dead_code, unused_extern_crates, unused_imports)
 )]
 
-#[cfg(feature = "dx11")]
-extern crate gfx_backend_dx11 as back;
 #[cfg(feature = "dx12")]
 extern crate gfx_backend_dx12 as back;
 #[cfg(feature = "metal")]
 extern crate gfx_backend_metal as back;
 #[cfg(feature = "vulkan")]
 extern crate gfx_backend_vulkan as back;
+
 extern crate gfx_hal as hal;
 
 extern crate num;
@@ -30,7 +29,10 @@ use std::collections::HashMap;
 
 use hal::{Instance, PhysicalDevice, Device, DescriptorPool, Surface, Swapchain};
 
-#[cfg(any(feature = "vulkan", feature = "dx11", feature = "dx12", feature = "metal"))]
+mod mesh;
+use mesh::{Vertex,Mesh};
+
+#[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
 fn main() {
 
     println!("Current Target: {}", env!("TARGET"));
@@ -38,7 +40,9 @@ fn main() {
     //Load GLTF Model
     let (gltf_model, buffers, _) = gltf::import("data/CesiumMan.gltf").unwrap();
 
-    let mut mesh = Mesh::new();
+    let mut vertices_vec = Vec::new();
+    let mut indices_vec = Vec::new();
+    let mut skeleton = Skeleton::new();
 
     for anim in gltf_model.animations() {
 
@@ -46,7 +50,7 @@ fn main() {
         let mut anim_duration = 0.0;
 
         //Store the animation
-        for channel in anim.channels() {       
+        for channel in anim.channels() {
             //Channel Reader
             let channel_reader = channel.reader(|buffer| Some(&buffers[buffer.index()]));
 
@@ -105,8 +109,7 @@ fn main() {
             }
         }
 
-        println!("AHHHH");
-        mesh.skeleton.animations.push ( Animation {
+        skeleton.animations.push ( Animation {
             channels: anim_channels,
             duration: anim_duration,
         });
@@ -146,8 +149,6 @@ fn main() {
 
         let has_mesh = node.mesh().is_some();
         let is_skinned = node.skin().is_some();
-
-        //When a node contains a skin, all its meshes contain JOINTS_0 and WEIGHTS_0 attributes.
 
         match node.mesh() {
             Some(gltf_mesh) => {
@@ -234,7 +235,7 @@ fn main() {
                             None => [0.0, 0.0, 0.0, 0.0],
                         };
 
-                        mesh.vertices.push( Vertex { 
+                        vertices_vec.push( Vertex { 
                             a_pos: pos,
                             a_col: col,
                             a_uv: uv,
@@ -245,7 +246,7 @@ fn main() {
                     }
 
                     //Indices
-                    mesh.indices = reader.read_indices().map( |read_indices| {
+                    indices_vec = reader.read_indices().map( |read_indices| {
                         read_indices.into_u32().collect()
                     }).unwrap();
                     //TODO: Better handling of this (not all GLTF meshes have indices)
@@ -263,7 +264,7 @@ fn main() {
                     //If "None", then each joint's inv_bind_matrix is assumed to be 4x4 Identity matrix
                     let mut inverse_bind_matrices = reader.read_inverse_bind_matrices();
 
-                    mesh.skeleton.inverse_root_transform = glm::inverse(&node.transform().matrix().into());
+                    skeleton.inverse_root_transform = glm::inverse(&node.transform().matrix().into());
                     
                     //Joints are nodes
                     for joint in skin.joints() {
@@ -288,16 +289,16 @@ fn main() {
                         //Build up skeleton
                         let joint_transform : glm::Mat4 = compute_global_transform(joint.index(), &nodes);
 
-                        let joint_matrix = mesh.skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
+                        let joint_matrix = skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
 
-                        mesh.skeleton.bones.push(GpuBone {
+                        skeleton.bones.push(GpuBone {
                             joint_matrix: joint_matrix.into(),
                         });
 
-                        mesh.skeleton.inverse_bind_matrices.push(inverse_bind_matrix);
+                        skeleton.inverse_bind_matrices.push(inverse_bind_matrix);
 
                         //map index
-                        mesh.skeleton.gpu_index_to_node_index.insert(mesh.skeleton.bones.len() - 1, joint.index());
+                        skeleton.gpu_index_to_node_index.insert(skeleton.bones.len() - 1, joint.index());
                     }
                 },
                 None => {},
@@ -332,49 +333,33 @@ fn main() {
         .open_with::<_, hal::Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
 
-    let mut command_pool = device.create_command_pool_typed(&queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16);
+    let mut command_pool = device.create_command_pool_typed(&queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16)
+                            .expect("Can't create command pool");
 
-    //Descriptor Set
-    let set_layout = device.create_descriptor_set_layout( 
-        &[
-            //General Uniform (M,V,P, time)
-            hal::pso::DescriptorSetLayoutBinding {
-                binding: 0,
-                ty: hal::pso::DescriptorType::UniformBuffer,
-                count: 1,
-                stage_flags: hal::pso::ShaderStageFlags::VERTEX | hal::pso::ShaderStageFlags::FRAGMENT,
-                immutable_samplers: false
-            },
-            //Skeleton
-            hal::pso::DescriptorSetLayoutBinding {
-                binding: 1,
-                ty: hal::pso::DescriptorType::UniformBuffer,
-                count: 1,
-                stage_flags: hal::pso::ShaderStageFlags::VERTEX,
-                immutable_samplers: false
-            },
-        ],
-        &[],
-    );
-    
-    let mut desc_pool = device.create_descriptor_pool(
-        1,
-        &[
-            hal::pso::DescriptorRangeDesc {
-                    ty: hal::pso::DescriptorType::UniformBuffer,
-                    count: 2,
-                },
-        ],
-    );
+    let mesh = Mesh::new(vertices_vec, indices_vec, &device, &adapter.physical_device);
 
-    let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+    //Skeleton Uniform Buffer Setup
+    //TODO: Don't try to create this buffer if no bones (len() == 0)
+    //FIXME: Causes crash if no bones (i.e. unskinned models)
+    let skeleton_uniform_len = (std::cmp::max(1,skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
+    let skeleton_uniform_unbound = device.create_buffer(skeleton_uniform_len, hal::buffer::Usage::UNIFORM).unwrap();
+    let skeleton_uniform_req = device.get_buffer_requirements(&skeleton_uniform_unbound);
 
-    #[derive(Debug, Clone, Copy)]
-    struct CameraUniform {
-        view_matrix:  [[f32;4];4],
-        proj_matrix:  [[f32;4];4],
-        model_matrix: [[f32;4];4],
-        time: f32,
+    let skeleton_upload_type = memory_types
+        .iter()
+        .enumerate()
+        .position(|(id, mem_type)| {
+            skeleton_uniform_req.type_mask & (1 << id) != 0
+                && mem_type.properties.contains(hal::memory::Properties::CPU_VISIBLE)
+        }).unwrap().into();
+
+    let skeleton_uniform_memory = device.allocate_memory(skeleton_upload_type, skeleton_uniform_req.size).unwrap();
+    let skeleton_uniform_buffer = device.bind_buffer_memory(&skeleton_uniform_memory, 0, skeleton_uniform_unbound).unwrap();
+
+    {
+        let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
+        uniform_writer[0..skeleton.bones.len()].copy_from_slice(&skeleton.bones);
+        device.release_mapping_writer(uniform_writer).unwrap();
     }
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
@@ -416,32 +401,43 @@ fn main() {
     {
         let mut uniform_writer = device.acquire_mapping_writer::<CameraUniform>(&uniform_buffer_memory, 0..uniform_buffer_req.size).unwrap();
         uniform_writer[0] = camera_uniform_struct; 
-        device.release_mapping_writer(uniform_writer);
+        device.release_mapping_writer(uniform_writer).unwrap();
     }
 
-    //Skeleton Uniform Buffer Setup
-    //TODO: Don't try to create this buffer if no bones (len() == 0)
-    //FIXME: Causes crash if no bones (i.e. unskinned models)
-    let skeleton_uniform_len = (std::cmp::max(1,mesh.skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
-    let skeleton_uniform_unbound = device.create_buffer(skeleton_uniform_len, hal::buffer::Usage::UNIFORM).unwrap();
-    let skeleton_uniform_req = device.get_buffer_requirements(&skeleton_uniform_unbound);
+        //Descriptor Set
+    let set_layout = device.create_descriptor_set_layout( 
+        &[
+            //General Uniform (M,V,P, time)
+            hal::pso::DescriptorSetLayoutBinding {
+                binding: 0,
+                ty: hal::pso::DescriptorType::UniformBuffer,
+                count: 1,
+                stage_flags: hal::pso::ShaderStageFlags::VERTEX | hal::pso::ShaderStageFlags::FRAGMENT,
+                immutable_samplers: false
+            },
+            //Skeleton
+            hal::pso::DescriptorSetLayoutBinding {
+                binding: 1,
+                ty: hal::pso::DescriptorType::UniformBuffer,
+                count: 1,
+                stage_flags: hal::pso::ShaderStageFlags::VERTEX,
+                immutable_samplers: false
+            },
+        ],
+        &[],
+    ).expect("Can't create descriptor set layout");
+    
+    let mut desc_pool = device.create_descriptor_pool(
+        1,
+        &[
+            hal::pso::DescriptorRangeDesc {
+                    ty: hal::pso::DescriptorType::UniformBuffer,
+                    count: 2,
+                },
+        ],
+    ).expect("Can't create descriptor pool");
 
-    let skeleton_upload_type = memory_types
-        .iter()
-        .enumerate()
-        .position(|(id, mem_type)| {
-            skeleton_uniform_req.type_mask & (1 << id) != 0
-                && mem_type.properties.contains(hal::memory::Properties::CPU_VISIBLE)
-        }).unwrap().into();
-
-    let skeleton_uniform_memory = device.allocate_memory(skeleton_upload_type, skeleton_uniform_req.size).unwrap();
-    let skeleton_uniform_buffer = device.bind_buffer_memory(&skeleton_uniform_memory, 0, skeleton_uniform_unbound).unwrap();
-
-    {
-        let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-        uniform_writer[0..mesh.skeleton.bones.len()].copy_from_slice(&mesh.skeleton.bones);
-        device.release_mapping_writer(uniform_writer);
-    }
+    let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
     //Descriptor write for our two uniform buffers
     device.write_descriptor_sets( vec![
@@ -459,51 +455,6 @@ fn main() {
         },
     ]);
 
-    //Vertex Buffer Setup
-    let buffer_stride = std::mem::size_of::<Vertex>() as u64;
-    let buffer_len = mesh.vertices.len() as u64 * buffer_stride;
-    let buffer_unbound = device.create_buffer(buffer_len, hal::buffer::Usage::VERTEX).unwrap();
-    let buffer_req = device.get_buffer_requirements(&buffer_unbound);
-
-    let upload_type = memory_types
-        .iter()
-        .enumerate()
-        .position(|(id, mem_type)| {
-            buffer_req.type_mask & (1 << id) != 0
-                && mem_type.properties.contains(hal::memory::Properties::CPU_VISIBLE)
-        }).unwrap().into();
-
-    let buffer_memory = device.allocate_memory(upload_type, buffer_req.size).unwrap();
-    let vertex_buffer = device.bind_buffer_memory(&buffer_memory, 0, buffer_unbound).unwrap();
-
-    {
-        let mut vertices = device.acquire_mapping_writer::<Vertex>(&buffer_memory, 0..buffer_req.size).unwrap();
-        vertices[0..mesh.vertices.len()].copy_from_slice(&mesh.vertices);
-        device.release_mapping_writer(vertices);
-    }
-
-    //Index Buffer Setup
-    let index_buffer_stride = std::mem::size_of::<u32>() as u64;
-    let index_buffer_len = mesh.indices.len() as u64 * index_buffer_stride;
-    let index_buffer_unbound = device.create_buffer(index_buffer_len, hal::buffer::Usage::INDEX).unwrap();
-    let index_buffer_req = device.get_buffer_requirements(&index_buffer_unbound);
-
-    let index_upload_type = memory_types
-        .iter()
-        .enumerate()
-        .position(|(id, mem_type)| {
-            index_buffer_req.type_mask & (1 << id) != 0
-                && mem_type.properties.contains(hal::memory::Properties::CPU_VISIBLE)
-        }).unwrap().into();
-
-    let index_buffer_memory = device.allocate_memory(index_upload_type, index_buffer_req.size).unwrap();
-    let index_buffer = device.bind_buffer_memory(&index_buffer_memory, 0, index_buffer_unbound).unwrap();
-    {
-        let mut indices = device.acquire_mapping_writer::<u32>(&index_buffer_memory, 0..index_buffer_req.size).unwrap();
-        indices[0..mesh.indices.len()].copy_from_slice(&mesh.indices);
-        device.release_mapping_writer(indices);
-    }
-
     let create_swapchain = |physical_device: &back::PhysicalDevice, device: &back::Device, surface: &mut <back::Backend as hal::Backend>::Surface| {
         let (capabilities, formats, _present_modes) = surface.compatibility(physical_device);
         let new_format = formats.map_or(hal::format::Format::Rgba8Srgb, |formats| {
@@ -516,7 +467,7 @@ fn main() {
 
         let swap_config = hal::SwapchainConfig::from_caps(&capabilities, new_format);
         let new_extent = swap_config.extent.to_extent();
-        let (new_swapchain, new_backbuffer) = device.create_swapchain(surface, swap_config, None);
+        let (new_swapchain, new_backbuffer) = device.create_swapchain(surface, swap_config, None).expect("Can't create swapchain");
 
         (new_swapchain, new_backbuffer, new_format, new_extent)
     };
@@ -607,7 +558,7 @@ fn main() {
         device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency])
     };
 
-    let mut renderpass = create_renderpass(&device, &format, &depth_format);
+    let mut renderpass = create_renderpass(&device, &format, &depth_format).expect("failed to create renderpass");
 
     let create_framebuffers = |device: &back::Device, backbuffer: hal::Backbuffer<back::Backend>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<back::Backend as hal::Backend>::ImageView, renderpass: &<back::Backend as hal::Backend>::RenderPass| {
         match backbuffer {
@@ -647,7 +598,7 @@ fn main() {
     let (mut frame_images, mut framebuffers) = create_framebuffers(&device, backbuffer, &format, &extent, &depth_view, &renderpass);
 
     let create_pipeline = |device: &back::Device, renderpass: &<back::Backend as hal::Backend>::RenderPass, set_layout: &<back::Backend as hal::Backend>::DescriptorSetLayout| {
-        let new_pipeline_layout = device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]);
+        let new_pipeline_layout = device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
             let vs_module = {
@@ -788,9 +739,9 @@ fn main() {
 
     let (mut pipeline, mut pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
 
-    let mut frame_semaphore = device.create_semaphore();
+    let mut acquisition_semaphore = device.create_semaphore().unwrap();
     
-    let mut frame_fence = device.create_fence(false);
+    let mut frame_fence = device.create_fence(false).unwrap();
     let mut running = true;
     let mut needs_resize = true;
     let (mut window_width, mut window_height) = (0u32, 0u32);
@@ -931,7 +882,7 @@ fn main() {
             _depth_memory = new_depth_memory;
             depth_format = new_depth_format;
 
-            let new_renderpass = create_renderpass(&device, &format, &depth_format);
+            let new_renderpass = create_renderpass(&device, &format, &depth_format).expect("failed to create renderpass");
             renderpass = new_renderpass;
 
             let (new_frame_images, new_framebuffers) = create_framebuffers(&device, new_backbuffer, &format, &extent, &depth_view, &renderpass);
@@ -993,18 +944,18 @@ fn main() {
         {
             let mut uniform_writer = device.acquire_mapping_writer::<CameraUniform>(&uniform_buffer_memory, 0..uniform_buffer_req.size).unwrap();
             uniform_writer[0] = camera_uniform_struct; 
-            device.release_mapping_writer(uniform_writer);
+            device.release_mapping_writer(uniform_writer).unwrap();
         }
         current_anim_time += delta_time * 1.75;
 
         //TODO: remove hardcoded 1st index
-        if current_anim_time > mesh.skeleton.animations[0].duration as f64 {
+        if current_anim_time > skeleton.animations[0].duration as f64 {
             current_anim_time = 0.0;
         }
 
         //TODO: remove hardcoded 1st index
         //Animate Bones
-        for (node_index, channel) in &mut mesh.skeleton.animations[0].channels {
+        for (node_index, channel) in &mut skeleton.animations[0].channels {
 
             //Get Current Left & Right Keyframes
             let mut left_key_index = channel.current_left_keyframe;
@@ -1050,23 +1001,23 @@ fn main() {
         }
 
         //Now compute each matrix and upload to GPU
-        for (bone_index, mut bone) in mesh.skeleton.bones.iter_mut().enumerate() {
-            if let Some(node_index) = mesh.skeleton.gpu_index_to_node_index.get(&bone_index) {
-                bone.joint_matrix = (mesh.skeleton.inverse_root_transform * compute_global_transform(*node_index, &nodes) * mesh.skeleton.inverse_bind_matrices[bone_index]).into();
+        for (bone_index, mut bone) in skeleton.bones.iter_mut().enumerate() {
+            if let Some(node_index) = skeleton.gpu_index_to_node_index.get(&bone_index) {
+                bone.joint_matrix = (skeleton.inverse_root_transform * compute_global_transform(*node_index, &nodes) * skeleton.inverse_bind_matrices[bone_index]).into();
             }
         }
 
         {
             let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-            uniform_writer[0..mesh.skeleton.bones.len()].copy_from_slice(&mesh.skeleton.bones);
-            device.release_mapping_writer(uniform_writer);
+            uniform_writer[0..skeleton.bones.len()].copy_from_slice(&skeleton.bones);
+            device.release_mapping_writer(uniform_writer).unwrap();
         }
         
-        device.reset_fence(&frame_fence);
+        device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();
 
         let frame: hal::SwapImageIndex = {
-            match swap_chain.acquire_image(!0, hal::FrameSync::Semaphore(&mut frame_semaphore)) {
+            match swap_chain.acquire_image(!0, hal::FrameSync::Semaphore(&mut acquisition_semaphore)) {
                 Ok(i) => i,
                 Err(_) => {
                     needs_resize = true;
@@ -1092,9 +1043,9 @@ fn main() {
             cmd_buffer.set_viewports(0, &[viewport.clone()]);
             cmd_buffer.set_scissors(0, &[viewport.rect]);
             cmd_buffer.bind_graphics_pipeline(&pipeline);
-            cmd_buffer.bind_vertex_buffers(0, Some((&vertex_buffer, 0)));
+            cmd_buffer.bind_vertex_buffers(0, Some((&mesh.vertex_buffer.buffer, 0)));
             cmd_buffer.bind_index_buffer(hal::buffer::IndexBufferView {
-                buffer: &index_buffer,
+                buffer: &mesh.index_buffer.buffer,
                 offset: 0,
                 index_type: hal::IndexType::U32,
             });
@@ -1111,22 +1062,27 @@ fn main() {
                     ],
                 );
 
-                encoder.draw_indexed(0..mesh.indices.len() as u32, 0, 0..100);
+                encoder.draw_indexed(0..mesh.index_count, 0, 0..100);
             }
 
             cmd_buffer.finish()
         };
 
-        let submission = hal::queue::Submission::new()
-            .wait_on(&[(&frame_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)])
-            .submit(Some(submit));
-        queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+        let submission_semaphore = device.create_semaphore().unwrap();
 
-        // TODO: replace with semaphore
-        device.wait_for_fence(&frame_fence, !0);
+        {
+            let submission = hal::queue::Submission::new()
+                .wait_on(&[(&acquisition_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)])
+                .signal(&[&submission_semaphore])
+                .submit(Some(submit));
+            queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+        }
+
+        //TODO: Remove once submission_semaphore is working properly
+        device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
-        if let Err(_) = swap_chain.present(&mut queue_group.queues[0], frame, &[]) {
+        if let Err(_) = swap_chain.present(&mut queue_group.queues[0], frame, &[submission_semaphore]) {
             needs_resize = true;
         }
 
@@ -1135,19 +1091,19 @@ fn main() {
 
     let total_time = timestamp() - first_timestamp;
     println!("Avg Frame Time: {}", total_time / num_frames as f64);
+
+    mesh.destroy(&device);
 }
 
 const INITIAL_WIDTH : f64 = 1280.0;
 const INITIAL_HEIGHT : f64 = 720.0;
 
 #[derive(Debug, Clone, Copy)]
-struct Vertex {
-    a_pos: [f32; 3],
-    a_col: [f32; 4],
-    a_uv:  [f32; 2],
-    a_norm: [f32; 3],
-    a_joint_indices: [f32; 4],
-    a_joint_weights: [f32; 4],
+struct CameraUniform {
+    view_matrix:  [[f32;4];4],
+    proj_matrix:  [[f32;4];4],
+    model_matrix: [[f32;4];4],
+    time: f32,
 }
 
 struct Skeleton {
@@ -1222,22 +1178,6 @@ impl ChannelType {
             ChannelType::TranslationChannel(t) => t.len(),
             ChannelType::RotationChannel(r) => r.len(),
             ChannelType::ScaleChannel(s) => s.len(),
-        }
-    }
-}
-
-struct Mesh {
-    vertices: Vec<Vertex>,
-    indices: Vec<u32>,
-    skeleton: Skeleton, //TODO: Make Option
-}
-
-impl Mesh {
-    fn new() -> Mesh {
-        Mesh {
-            vertices : Vec::new(),
-            indices : Vec::new(),
-            skeleton : Skeleton::new(),
         }
     }
 }
