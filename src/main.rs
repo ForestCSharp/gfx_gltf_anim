@@ -32,13 +32,18 @@ use hal::{Instance, PhysicalDevice, Device, DescriptorPool, Surface, Swapchain};
 mod mesh;
 use mesh::{Vertex,Mesh};
 
+mod cimgui_hal;
+use cimgui_hal::*;
+
+mod gfx_helpers;
+
 #[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
 fn main() {
 
     println!("Current Target: {}", env!("TARGET"));
 
     //Load GLTF Model
-    let (gltf_model, buffers, _) = gltf::import("data/CesiumMan.gltf").unwrap();
+    let (gltf_model, buffers, _) = gltf::import("data/models/CesiumMan.gltf").unwrap();
 
     let mut vertices_vec = Vec::new();
     let mut indices_vec = Vec::new();
@@ -333,6 +338,8 @@ fn main() {
         .open_with::<_, hal::Graphics>(1, |family| surface.supports_queue_family(family))
         .unwrap();
 
+	//TODO: Dedicated Transfer Queue
+
     let mut command_pool = device.create_command_pool_typed(&queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16)
                             .expect("Can't create command pool");
 
@@ -345,13 +352,7 @@ fn main() {
     let skeleton_uniform_unbound = device.create_buffer(skeleton_uniform_len, hal::buffer::Usage::UNIFORM).unwrap();
     let skeleton_uniform_req = device.get_buffer_requirements(&skeleton_uniform_unbound);
 
-    let skeleton_upload_type = memory_types
-        .iter()
-        .enumerate()
-        .position(|(id, mem_type)| {
-            skeleton_uniform_req.type_mask & (1 << id) != 0
-                && mem_type.properties.contains(hal::memory::Properties::CPU_VISIBLE)
-        }).unwrap().into();
+    let skeleton_upload_type = gfx_helpers::get_memory_type( &adapter.physical_device, &skeleton_uniform_req, hal::memory::Properties::CPU_VISIBLE);
 
     let skeleton_uniform_memory = device.allocate_memory(skeleton_upload_type, skeleton_uniform_req.size).unwrap();
     let skeleton_uniform_buffer = device.bind_buffer_memory(&skeleton_uniform_memory, 0, skeleton_uniform_unbound).unwrap();
@@ -387,13 +388,7 @@ fn main() {
     let uniform_buffer_unbound = device.create_buffer(uniform_buffer_len, hal::buffer::Usage::UNIFORM).unwrap();
     let uniform_buffer_req = device.get_buffer_requirements(&uniform_buffer_unbound);
 
-    let uniform_upload_type = memory_types
-        .iter()
-        .enumerate()
-        .position(|(id, mem_type)| {
-            uniform_buffer_req.type_mask & (1 << id) != 0
-                && mem_type.properties.contains(hal::memory::Properties::CPU_VISIBLE)
-        }).unwrap().into();
+    let uniform_upload_type = gfx_helpers::get_memory_type(&adapter.physical_device, &uniform_buffer_req, hal::memory::Properties::CPU_VISIBLE);
 
     let uniform_buffer_memory = device.allocate_memory(uniform_upload_type, uniform_buffer_req.size).unwrap();
     let uniform_buffer = device.bind_buffer_memory(&uniform_buffer_memory, 0, uniform_buffer_unbound).unwrap();
@@ -404,7 +399,7 @@ fn main() {
         device.release_mapping_writer(uniform_writer).unwrap();
     }
 
-        //Descriptor Set
+    //Descriptor Set
     let set_layout = device.create_descriptor_set_layout( 
         &[
             //General Uniform (M,V,P, time)
@@ -489,15 +484,7 @@ fn main() {
 
         let depth_mem_reqs = device.get_image_requirements(&depth_image);
 
-        let mem_type = memory_types
-            .iter()
-            .enumerate()
-            .position(|(id, mem_type)| {
-                depth_mem_reqs.type_mask & (1 << id) != 0 &&
-                mem_type.properties.contains(hal::memory::Properties::DEVICE_LOCAL)
-            })
-            .unwrap()
-            .into();
+		let mem_type = gfx_helpers::get_memory_type(&adapter.physical_device, &depth_mem_reqs, hal::memory::Properties::DEVICE_LOCAL);
 
         let depth_memory = device.allocate_memory(mem_type, depth_mem_reqs.size).unwrap();
         let depth_image = device.bind_image_memory(&depth_memory, 0, depth_image).unwrap();
@@ -529,7 +516,7 @@ fn main() {
                 hal::pass::AttachmentStoreOp::Store,
             ),
             stencil_ops: hal::pass::AttachmentOps::DONT_CARE,
-            layouts: hal::image::Layout::Undefined..hal::image::Layout::Present,
+            layouts: hal::image::Layout::Undefined..hal::image::Layout::ColorAttachmentOptimal,
         };
 
         let depth_attachment = hal::pass::Attachment {
@@ -555,10 +542,10 @@ fn main() {
                 ..(hal::image::Access::COLOR_ATTACHMENT_READ | hal::image::Access::COLOR_ATTACHMENT_WRITE),
         };
 
-        device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency])
+        device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass")
     };
 
-    let mut renderpass = create_renderpass(&device, &format, &depth_format).expect("failed to create renderpass");
+    let mut renderpass = create_renderpass(&device, &format, &depth_format);
 
     let create_framebuffers = |device: &back::Device, backbuffer: hal::Backbuffer<back::Backend>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<back::Backend as hal::Backend>::ImageView, renderpass: &<back::Backend as hal::Backend>::RenderPass| {
         match backbuffer {
@@ -602,7 +589,7 @@ fn main() {
 
         let new_pipeline = {
             let vs_module = {
-                let glsl = fs::read_to_string("data/quad.vert").unwrap();
+                let glsl = fs::read_to_string("data/shaders/quad.vert").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
                     .unwrap()
                     .bytes()
@@ -611,7 +598,7 @@ fn main() {
                 device.create_shader_module(&spirv).unwrap()
             };
             let fs_module = {
-                let glsl = fs::read_to_string("data/quad.frag").unwrap();
+                let glsl = fs::read_to_string("data/shaders/quad.frag").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Fragment)
                     .unwrap()
                     .bytes()
@@ -739,6 +726,9 @@ fn main() {
 
     let (mut pipeline, mut pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
 
+	//initialize cimgui
+	let mut cimgui_hal = CimguiHal::new( &device, &adapter.physical_device, &mut queue_group, &format, &depth_format);
+
     let mut acquisition_semaphore = device.create_semaphore().unwrap();
     
     let mut frame_fence = device.create_fence(false).unwrap();
@@ -758,11 +748,12 @@ fn main() {
     let mut e_state = false;
     let mut q_state = false;
 
-    let mut left_mouse_down = false;
-
     let mut num_frames = 0;
 
     let mut is_fullscreen = false;
+
+	let mut mouse_pos = [0.0, 0.0];
+	let mut mouse_button_states =  [ false, false, false, false, false];
 
     while running {
         num_frames += 1;
@@ -805,10 +796,17 @@ fn main() {
                         }
                     },
                     winit::WindowEvent::MouseInput { state, button, ..} => {
+						//TODO: Replace with match
                         if button == winit::MouseButton::Left {
-                            left_mouse_down = state == winit::ElementState::Pressed;
-                        }
+							mouse_button_states[0] = state == winit::ElementState::Pressed;
+                        } else if button == winit::MouseButton::Right {
+							mouse_button_states[1] = state == winit::ElementState::Pressed;
+						}
                     },
+					winit::WindowEvent::CursorMoved { position, modifiers, ..} => {
+						mouse_pos[0] = position.x as f32;
+						mouse_pos[1] = position.y as f32;
+					},
                     _ => (),
                 }
             }
@@ -821,6 +819,10 @@ fn main() {
                 }
             }
         });
+
+		cimgui_hal.update_mouse_state(mouse_button_states, mouse_pos);
+
+		//TODO: Don't Run Other Input Logic if cimgui_hal wants focus / etc.
 
         let mut forward = 0.0;
         let mut right = 0.0;
@@ -882,7 +884,7 @@ fn main() {
             _depth_memory = new_depth_memory;
             depth_format = new_depth_format;
 
-            let new_renderpass = create_renderpass(&device, &format, &depth_format).expect("failed to create renderpass");
+            let new_renderpass = create_renderpass(&device, &format, &depth_format);
             renderpass = new_renderpass;
 
             let (new_frame_images, new_framebuffers) = create_framebuffers(&device, new_backbuffer, &format, &extent, &depth_view, &renderpass);
@@ -911,7 +913,7 @@ fn main() {
         let delta_time = time - last_time;
 
         //Rotate cam_forward & cam_up when left mouse pressed using mouse delta
-        if left_mouse_down {
+        if mouse_button_states[1] {
             let yaw_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.0 * 50.0 * delta_time) as f32, &glm::vec3(0.,1.,0.));
             let pitch_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.1 * 50.0 * delta_time) as f32, &cam_forward.cross(&cam_up));
 
@@ -1057,13 +1059,15 @@ fn main() {
                     &framebuffers[frame as usize],
                     viewport.rect,
                     &[
-                        hal::command::ClearValue::Color(hal::command::ClearColor::Float([0.8, 0.8, 0.8, 1.0,])),
+                        hal::command::ClearValue::Color(hal::command::ClearColor::Float([0.2, 0.2, 0.2, 0.0,])),
                         hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(1.0, 0))
                     ],
                 );
 
                 encoder.draw_indexed(0..mesh.index_count, 0, 0..100);
             }
+
+			cimgui_hal.render(window_width as f32, window_height as f32, &mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
 
             cmd_buffer.finish()
         };

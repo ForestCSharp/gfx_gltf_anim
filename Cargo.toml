@@ -12,6 +12,7 @@ vulkan = ["gfx-backend-vulkan"]
 metal = ["gfx-backend-metal"]
 
 [dependencies]
+cimgui = {path = "../cimgui"}
 num = "*"
 winit = "0.17"
 image = "0.19"
