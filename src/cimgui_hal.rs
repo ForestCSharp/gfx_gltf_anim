@@ -50,6 +50,8 @@ pub struct CimguiInputState {
 	mouse_pos : [f32;2],
 }
 
+//FIXME: need to set up ImGui KeyMap
+
 impl CimguiHal {
 	pub fn new(device: &back::Device, physical_device : &back::PhysicalDevice, queue_group : &mut hal::QueueGroup<B, hal::Graphics>, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
 
@@ -241,6 +243,21 @@ impl CimguiHal {
 		}
 	}
 
+	//TODO: Modifiers
+	pub fn update_key_state(&mut self, key : usize, pressed : bool) {
+		unsafe {
+			let io = igGetIO();
+			(*io).KeysDown[key] = pressed;
+		}
+	}
+
+	pub fn add_input_character(&mut self, c : char)
+	{
+		unsafe {
+			ImGuiIO_AddInputCharacter(igGetIO(), c as ImWchar);
+		}
+	}
+
 	//TODO: pass in desired framebuffer
 	pub fn render(&mut self, width : f32, height : f32, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
 		unsafe {
@@ -366,7 +383,6 @@ impl CimguiHal {
 
 						//TODO: user callback
 
-
 						let scissor_rect = hal::pso::Rect {
 							x : { if (cmd.ClipRect.x - display_pos.x) as i16 > 0 { (cmd.ClipRect.x - display_pos.x) as i16 } else { 0 } },
 							y : { if (cmd.ClipRect.y - display_pos.y) as i16 > 0 { (cmd.ClipRect.y - display_pos.y) as i16 } else { 0 } },
@@ -375,7 +391,7 @@ impl CimguiHal {
 						};
 						
 						//FIXME: causing crashes on vulkan backend
-						//encoder.set_scissors(0, &[scissor_rect]);
+						encoder.set_scissors(0, &[scissor_rect]);
 
 						encoder.draw_indexed(idx_offset..(idx_offset + cmd.ElemCount), vtx_offset, 0..1);
 

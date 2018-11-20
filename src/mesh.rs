@@ -12,16 +12,6 @@ use hal::{PhysicalDevice, Device, Backend};
 
 use ::gfx_helpers;
 
-#[derive(Debug, Clone, Copy)]
-pub struct Vertex {
-    pub a_pos: [f32; 3],
-    pub a_col: [f32; 4],
-    pub a_uv:  [f32; 2],
-    pub a_norm: [f32; 3],
-    pub a_joint_indices: [f32; 4],
-    pub a_joint_weights: [f32; 4],
-}
-
 pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
     pub memory : <B as Backend>::Memory,
@@ -68,6 +58,16 @@ impl GpuBuffer {
         device.destroy_buffer(self.buffer);
         device.free_memory(self.memory);
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Vertex {
+    pub a_pos: [f32; 3],
+    pub a_col: [f32; 4],
+    pub a_uv:  [f32; 2],
+    pub a_norm: [f32; 3],
+    pub a_joint_indices: [f32; 4],
+    pub a_joint_weights: [f32; 4],
 }
 
 pub struct Mesh {

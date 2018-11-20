@@ -771,7 +771,11 @@ fn main() {
                         window_width = new_width;
                         window_height = new_height;
                     },
+					winit::WindowEvent::ReceivedCharacter(c)=> {
+						cimgui_hal.add_input_character(c);
+					}
                     winit::WindowEvent::KeyboardInput{ device_id, input } => {
+						cimgui_hal.update_key_state(input.scancode as usize, input.state == winit::ElementState::Pressed);
                         match input.virtual_keycode {
                             Some(winit::VirtualKeyCode::W) => w_state = input.state == winit::ElementState::Pressed,
                             Some(winit::VirtualKeyCode::S) => s_state = input.state == winit::ElementState::Pressed,
@@ -779,7 +783,7 @@ fn main() {
                             Some(winit::VirtualKeyCode::D) => d_state = input.state == winit::ElementState::Pressed,
                             Some(winit::VirtualKeyCode::E) => e_state = input.state == winit::ElementState::Pressed,
                             Some(winit::VirtualKeyCode::Q) => q_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::F) => {
+                            Some(winit::VirtualKeyCode::F11) => {
                                 if input.state == winit::ElementState::Pressed {
                                     is_fullscreen = !is_fullscreen;
                                     if is_fullscreen {
@@ -797,15 +801,20 @@ fn main() {
                     },
                     winit::WindowEvent::MouseInput { state, button, ..} => {
 						//TODO: Replace with match
-                        if button == winit::MouseButton::Left {
-							mouse_button_states[0] = state == winit::ElementState::Pressed;
-                        } else if button == winit::MouseButton::Right {
-							mouse_button_states[1] = state == winit::ElementState::Pressed;
+						let pressed = state == winit::ElementState::Pressed;
+						match button {
+							winit::MouseButton::Left   => mouse_button_states[0] = pressed,
+							winit::MouseButton::Right  => mouse_button_states[1] = pressed,
+							winit::MouseButton::Middle => mouse_button_states[2] = pressed,
+							winit::MouseButton::Other(idx) => {
+								if (idx as usize) < mouse_button_states.len() {
+									mouse_button_states[idx as usize] = pressed;
+								}
+							}
 						}
                     },
 					winit::WindowEvent::CursorMoved { position, modifiers, ..} => {
-						mouse_pos[0] = position.x as f32;
-						mouse_pos[1] = position.y as f32;
+						mouse_pos = [position.x as f32, position.y as f32];
 					},
                     _ => (),
                 }
