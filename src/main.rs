@@ -866,10 +866,6 @@ fn main() {
             device.wait_idle().unwrap();
 
             //Destroy old resources
-
-            device.destroy_graphics_pipeline(pipeline);
-            device.destroy_pipeline_layout(pipeline_layout);
-
             for framebuffer in framebuffers {
                 device.destroy_framebuffer(framebuffer);
             }
@@ -877,7 +873,7 @@ fn main() {
             for (_, rtv) in frame_images {
                 device.destroy_image_view(rtv);
             }
-            device.destroy_render_pass(renderpass);
+
             device.destroy_swapchain(swap_chain);
 
             //Build new resources         
@@ -893,16 +889,9 @@ fn main() {
             _depth_memory = new_depth_memory;
             depth_format = new_depth_format;
 
-            let new_renderpass = create_renderpass(&device, &format, &depth_format);
-            renderpass = new_renderpass;
-
             let (new_frame_images, new_framebuffers) = create_framebuffers(&device, new_backbuffer, &format, &extent, &depth_view, &renderpass);
             frame_images = new_frame_images;
             framebuffers = new_framebuffers;
-
-            let (new_pipeline, new_pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
-            pipeline = new_pipeline;
-            pipeline_layout = new_pipeline_layout;
 
             //Update Projection matrix (possible change in aspect ratio)
             camera_uniform_struct.proj_matrix = glm::perspective(
@@ -921,7 +910,7 @@ fn main() {
         let time = timestamp() - first_timestamp;
         let delta_time = time - last_time;
 
-        //Rotate cam_forward & cam_up when left mouse pressed using mouse delta
+        //Rotate cam_forward & cam_up when right mouse pressed using mouse delta
         if mouse_button_states[1] {
             let yaw_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.0 * 50.0 * delta_time) as f32, &glm::vec3(0.,1.,0.));
             let pitch_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.1 * 50.0 * delta_time) as f32, &cam_forward.cross(&cam_up));
