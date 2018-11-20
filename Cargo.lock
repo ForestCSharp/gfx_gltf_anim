@@ -191,6 +191,7 @@ dependencies = [
 [[package]]
 name = "cimgui"
 version = "0.1.0"
+source = "git+https://github.com/ForestCSharp/cimgui-rs.git#779cbd42f19309e0a8dd6419d80fa957634e2836"
 dependencies = [
  "bindgen 0.42.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.25 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -552,7 +553,7 @@ dependencies = [
 name = "gfx_gltf_anim"
 version = "0.1.0"
 dependencies = [
- "cimgui 0.1.0",
+ "cimgui 0.1.0 (git+https://github.com/ForestCSharp/cimgui-rs.git)",
  "gfx-backend-dx12 0.1.0 (git+https://github.com/gfx-rs/gfx.git)",
  "gfx-backend-metal 0.1.0 (git+https://github.com/gfx-rs/gfx.git)",
  "gfx-backend-vulkan 0.1.0 (git+https://github.com/gfx-rs/gfx.git)",
@@ -1645,6 +1646,7 @@ dependencies = [
 "checksum cexpr 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "8fc0086be9ca82f7fc89fc873435531cb898b86e850005850de1f820e2db6e9b"
 "checksum cfg-if 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)" = "082bb9b28e00d3c9d39cc03e64ce4cea0f1bb9b3fde493f0cbc008472d22bdf4"
 "checksum cgmath 0.15.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d2372c02a7cfabf871ec42ecc968406a7b5916bcfd51defc6a0498fcb19fa2e5"
+"checksum cimgui 0.1.0 (git+https://github.com/ForestCSharp/cimgui-rs.git)" = "<none>"
 "checksum clang-sys 0.26.3 (registry+https://github.com/rust-lang/crates.io-index)" = "b5ca71038e58142b85c1b4f06a61f3b7a6e3ca035330a249f80164d37ea44de0"
 "checksum clap 2.32.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b957d88f4b6a63b9d70d5f454ac8011819c6efa7727858f458ab71c756ce2d3e"
 "checksum cloudabi 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"

@@ -12,7 +12,7 @@ vulkan = ["gfx-backend-vulkan"]
 metal = ["gfx-backend-metal"]
 
 [dependencies]
-cimgui = {path = "../cimgui"}
+cimgui = { git = "https://github.com/ForestCSharp/cimgui-rs.git" }
 num = "*"
 winit = "0.17"
 image = "0.19"
