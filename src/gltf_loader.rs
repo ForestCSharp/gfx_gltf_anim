@@ -20,7 +20,7 @@ use mesh::{Vertex,Mesh};
 
 pub struct GltfModel {
 	pub meshes 	 : Vec<Mesh>,
-	pub skeleton : Skeleton, //TODO: Make optional
+	pub skeleton : Skeleton, //TODO: Make optional, allow multiple, associate with individual meshes
 	pub nodes    : Vec<Node>,
 }
 
@@ -148,7 +148,7 @@ impl GltfModel {
 				Some(gltf_mesh) => {
 
 					let mut vertices_vec = Vec::new();
-					let mut indices_vec = Vec::new();
+					let mut indices_vec = None;
 
 					for primitive in gltf_mesh.primitives() {
 
@@ -246,8 +246,7 @@ impl GltfModel {
 						//Indices
 						indices_vec = reader.read_indices().map( |read_indices| {
 							read_indices.into_u32().collect()
-						}).unwrap();
-						//TODO: Better handling of this (not all GLTF meshes have indices)
+						});
 					} 
 
 					meshes.push(Mesh::new(vertices_vec, indices_vec, device, physical_device));
@@ -313,16 +312,10 @@ impl GltfModel {
 		}
 	}
 
+	//TODO: remove dependency on primary command buffers
 	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>) {
 		for mesh in &self.meshes {
-			encoder.bind_vertex_buffers(0, Some((&mesh.vertex_buffer.buffer, 0)));
-			encoder.bind_index_buffer(hal::buffer::IndexBufferView {
-				buffer: &mesh.index_buffer.buffer,
-				offset: 0,
-				index_type: hal::IndexType::U32,
-			});
-
-			encoder.draw_indexed(0..mesh.index_count, 0, 0..1);
+			mesh.record_draw_commands(encoder);
 		}
 	}
 

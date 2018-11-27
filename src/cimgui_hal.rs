@@ -301,15 +301,14 @@ impl CimguiHal {
 
 			igNewFrame();
 
-			let mut show_demo_window = false;
-			let mut test_float = 1.0;
+			static mut TEST_FLOAT : f32 = 1.0;
 
 			igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
 			igText(CString::new("Hello, world!").unwrap().as_ptr());
-			igSliderFloat(CString::new("test float").unwrap().as_ptr(), &mut test_float, 0.0f32, 1.0f32, std::ptr::null(), 1.0f32);
+			igSliderFloat(CString::new("test float").unwrap().as_ptr(), &mut TEST_FLOAT, 0.0f32, 1.0f32, std::ptr::null(), 1.0f32);
 			igEnd();
 
-			igShowDemoWindow(&mut show_demo_window);
+			igShowDemoWindow(&mut true);
 
 			igEndFrame();
 

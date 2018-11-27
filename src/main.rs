@@ -843,7 +843,7 @@ fn main() {
     let total_time = timestamp() - first_timestamp;
     println!("Avg Frame Time: {}", total_time / num_frames as f64);
 
-    //gltf_model.destroy(&device);
+    gltf_model.destroy(&device);
 
 	cimgui_hal.shutdown();
 

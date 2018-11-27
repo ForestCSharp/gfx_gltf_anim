@@ -16,6 +16,7 @@ pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
     pub memory : <B as Backend>::Memory,
 	pub usage  : hal::buffer::Usage,
+	pub count  : u32,
 }
 
 impl GpuBuffer {
@@ -45,6 +46,7 @@ impl GpuBuffer {
 			buffer : buffer,
 			memory : buffer_memory,
 			usage  : usage,
+			count  : data.len() as u32,
 		}
 	}
 
@@ -72,28 +74,42 @@ pub struct Vertex {
 
 pub struct Mesh {
     pub vertex_buffer : GpuBuffer,
-    pub index_buffer : GpuBuffer,
-    pub index_count : u32,
+    pub index_buffer : Option<GpuBuffer>,
 }
 
 impl Mesh {
-    pub fn new(in_vertices : Vec<Vertex>, in_indices : Vec<u32>, device : &back::Device, physical_device : &back::PhysicalDevice ) -> Mesh {
-
-        //Vertex Buffer Setup
-		let vertex_buffer = GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, device, physical_device);
-
-        //Index Buffer Setup
-		let index_buffer = GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, device, physical_device);
-
+    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device : &back::Device, physical_device : &back::PhysicalDevice ) -> Mesh {
         Mesh {
-            vertex_buffer : vertex_buffer,
-            index_buffer : index_buffer,
-            index_count : in_indices.len() as u32,
+            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, device, physical_device),
+            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, device, physical_device)),
         }
     }
 
+	//TODO: remove dependency on primary command buffers
+	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>)
+	{
+		encoder.bind_vertex_buffers(0, Some((&self.vertex_buffer.buffer, 0)));
+
+		match &self.index_buffer {
+			Some(index_buffer) => {
+				encoder.bind_index_buffer(hal::buffer::IndexBufferView {
+					buffer: &index_buffer.buffer,
+					offset: 0,
+					index_type: hal::IndexType::U32,
+				});
+				encoder.draw_indexed(0..index_buffer.count, 0, 0..1);
+			},
+			None => {
+				encoder.draw(0..self.vertex_buffer.count, 0..1);
+			}
+		}
+	}
+
     pub fn destroy(self, device: &back::Device) {
         self.vertex_buffer.destroy(device);
-        self.index_buffer.destroy(device);
+		match self.index_buffer {
+			Some(gpu_buffer) => gpu_buffer.destroy(device),
+			None => {},
+		}
     }
 }
