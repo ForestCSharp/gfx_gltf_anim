@@ -25,7 +25,6 @@ extern crate memoffset;
 
 use std::fs;
 use std::io::{Read};
-use std::collections::HashMap;
 
 use hal::{Instance, PhysicalDevice, Device, DescriptorPool, Surface, Swapchain};
 
@@ -37,279 +36,14 @@ use cimgui_hal::*;
 
 mod gfx_helpers;
 
+mod gltf_loader;
+use gltf_loader::*;
+
+
 #[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
 fn main() {
 
     println!("Current Target: {}", env!("TARGET"));
-
-    //Load GLTF Model
-    let (gltf_model, buffers, _) = gltf::import("data/models/CesiumMan.gltf").unwrap();
-
-    let mut vertices_vec = Vec::new();
-    let mut indices_vec = Vec::new();
-    let mut skeleton = Skeleton::new();
-
-    for anim in gltf_model.animations() {
-
-        let mut anim_channels = Vec::new();
-        let mut anim_duration = 0.0;
-
-        //Store the animation
-        for channel in anim.channels() {
-            //Channel Reader
-            let channel_reader = channel.reader(|buffer| Some(&buffers[buffer.index()]));
-
-            let node_index = channel.target().node().index();
-
-            let times = channel_reader.read_inputs().unwrap();
-
-            match channel_reader.read_outputs().unwrap() {
-                gltf::animation::util::ReadOutputs::Translations(mut translations) => {
-                    
-                    let mut translation_keyframes = Vec::new();
-                    
-                    for (time, translation) in times.zip(translations) {
-                        translation_keyframes.push((time, translation));
-                    }
-
-                    anim_channels.push((node_index, AnimChannel {
-                        keyframes : ChannelType::TranslationChannel(translation_keyframes),
-                        current_left_keyframe: 0,
-                    }));
-                },
-                gltf::animation::util::ReadOutputs::Rotations(mut rotations) => {
-                    
-                    let mut rotation_keyframes = Vec::new();
-
-                    for (time, rotation) in times.zip(rotations.into_f32()) {
-                        rotation_keyframes.push((time, rotation));
-                    }
-
-                    anim_channels.push((node_index, AnimChannel {
-                        keyframes: ChannelType::RotationChannel(rotation_keyframes),
-                        current_left_keyframe: 0,
-                    }));
-                },
-                gltf::animation::util::ReadOutputs::Scales(mut scales) => {
-                    
-                    let mut scale_keyframes = Vec::new();
-                    
-                    for (time, scale) in times.zip(scales) {
-                        scale_keyframes.push((time, scale));
-                    }
-
-                    anim_channels.push((node_index, AnimChannel {
-                        keyframes: ChannelType::ScaleChannel(scale_keyframes),
-                        current_left_keyframe: 0,
-                    }));
-                },
-                _ => {
-                    println!("Unsupported Anim Channel");
-                },
-            }
-
-            //Get Anim Duration
-            for time_val in channel_reader.read_inputs().unwrap() {
-            if time_val > anim_duration { anim_duration = time_val; }
-            }
-        }
-
-        skeleton.animations.push ( Animation {
-            channels: anim_channels,
-            duration: anim_duration,
-        });
-    }
-
-    //Store all nodes (their index == index in vec, parent index, children indices, and transform)
-    let mut nodes = Vec::new();
-
-    //Map child indices to parent indices (used below when building up node Vec)
-    let node_parents = get_node_parents(&mut gltf_model.nodes());
-
-    for node in gltf_model.nodes() {
-
-        let children_indices = node.children().map(|child| child.index()).collect::<Vec<usize>>();
-
-        let (translation, rotation, scale) = node.transform().decomposed();
-
-        nodes.push(
-            Node {
-                parent: node_parents[&node.index()],
-                children: children_indices,
-                translation: translation,
-                rotation: rotation,
-                scale: scale,
-            }
-        );
-
-        let parent_index = match nodes[nodes.len()-1].parent {
-            Some(index) => index.to_string(),
-            None => "N/A".to_string(),
-        };
-
-        println!("INDEX: {},\tPARENT: {},\tCHILDREN {:?}", node.index(), parent_index , nodes[nodes.len() - 1].children);
-    }
-
-    for node in gltf_model.nodes() {
-
-        let has_mesh = node.mesh().is_some();
-        let is_skinned = node.skin().is_some();
-
-        match node.mesh() {
-            Some(gltf_mesh) => {
-                for primitive in gltf_mesh.primitives() {
-
-                    let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
-                    let pos_iter = reader.read_positions().unwrap(); 
-                    //TODO: Better error handling if no positions (return Err("Mesh requires positions"))
-
-                    //Normals
-                    let mut norm_iter = reader.read_normals();
-
-                    //Optional Colors
-                    let mut col_iter = match reader.read_colors(0) {
-                        Some(col_iter) => Some(col_iter.into_rgba_f32()),
-                        None => None,
-                    };
-
-                    //Optional UVs
-                    let mut uv_iter = match reader.read_tex_coords(0) {
-                        Some(uv_iter) => Some(uv_iter.into_f32()),
-                        None => {
-                            println!("Warning: Mesh is missing UVs"); 
-                            None
-                        },
-                    };
-
-                    //if skinned, we need to get the JOINTS_0 and WEIGHTS_0 attributes
-                    let mut joints_iter = match reader.read_joints(0) {
-                        Some(joints_iter) => Some(joints_iter.into_u16()),
-                        None => None,
-                    };
-
-                    let mut weights_iter = match reader.read_weights(0) {
-                        Some(weights_iter) => Some(weights_iter.into_f32()),
-                        None => None,
-                    };
-
-                    //Iterate over our positions
-                    for pos in pos_iter {
-
-                        let col = match &mut col_iter {
-                            Some(col_iter) =>  match col_iter.next() {
-                                Some(col) => col,
-                                None => [0., 0., 0., 1.0],
-                            },
-                            None => [0., 0., 0., 1.0],
-                        };
-
-                        let uv = match &mut uv_iter {
-                            Some(uv_iter) => match uv_iter.next() {
-                                Some(uv) => uv,
-                                None => [0.0, 0.0],
-                            },
-                            None => [0.0, 0.0],
-                        };
-
-                        let norm = match &mut norm_iter {
-                            Some(norm_iter) => match norm_iter.next() {
-                                Some(norm) => norm,
-                                None => [0.0, 0.0, 0.0],
-                            },
-                            None => [0.0, 0.0, 0.0],
-                        };
-
-                        let joint_indices = match &mut joints_iter {
-                            Some(joints_iter) => match joints_iter.next() {
-                                Some(joint_indices) => [
-                                            joint_indices[0] as f32, 
-                                            joint_indices[1] as f32, 
-                                            joint_indices[2] as f32, 
-                                            joint_indices[3] as f32,
-                                            ],
-                                None => [0., 0., 0., 0.],
-                            },
-                            None => [0., 0., 0., 0.],
-                        };
-
-                        let joint_weights = match &mut weights_iter {
-                            Some(weights_iter) => match weights_iter.next() {
-                                Some(joint_weights) => joint_weights,
-                                None => [0.0, 0.0, 0.0, 0.0],
-                            },
-                            None => [0.0, 0.0, 0.0, 0.0],
-                        };
-
-                        vertices_vec.push( Vertex { 
-                            a_pos: pos,
-                            a_col: col,
-                            a_uv: uv,
-                            a_norm: norm,
-                            a_joint_indices: joint_indices,
-                            a_joint_weights: joint_weights,
-                        });
-                    }
-
-                    //Indices
-                    indices_vec = reader.read_indices().map( |read_indices| {
-                        read_indices.into_u32().collect()
-                    }).unwrap();
-                    //TODO: Better handling of this (not all GLTF meshes have indices)
-                } 
-            },
-            None => {},
-        }
-
-        //skinning: build up skeleton
-        if has_mesh && is_skinned {
-
-            match node.skin() {
-                Some(skin) => {
-                    let reader = skin.reader(|buffer| Some(&buffers[buffer.index()]));
-                    //If "None", then each joint's inv_bind_matrix is assumed to be 4x4 Identity matrix
-                    let mut inverse_bind_matrices = reader.read_inverse_bind_matrices();
-
-                    skeleton.inverse_root_transform = glm::inverse(&node.transform().matrix().into());
-                    
-                    //Joints are nodes
-                    for joint in skin.joints() {
-
-                        let inverse_bind_matrix: glm::Mat4 = {
-
-                            let mut out_matrix : glm::Mat4 = glm::Mat4::identity();
-
-                            match &mut inverse_bind_matrices {
-                                Some(inverse_bind_matrices) => {
-                                    match inverse_bind_matrices.next() {
-                                        Some(matrix) => out_matrix = matrix.into(),
-                                        None => {}, //used up our iterator
-                                    }
-                                },
-                                None => {}, //iterator was none (assume 4x4 identity matrix)
-                            } 
-
-                            out_matrix
-                        };
-                        
-                        //Build up skeleton
-                        let joint_transform : glm::Mat4 = compute_global_transform(joint.index(), &nodes);
-
-                        let joint_matrix = skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
-
-                        skeleton.bones.push(GpuBone {
-                            joint_matrix: joint_matrix.into(),
-                        });
-
-                        skeleton.inverse_bind_matrices.push(inverse_bind_matrix);
-
-                        //map index
-                        skeleton.gpu_index_to_node_index.insert(skeleton.bones.len() - 1, joint.index());
-                    }
-                },
-                None => {},
-            }
-        }
-    }
 
     //Create a window builder
     let window_builder = winit::WindowBuilder::new()
@@ -343,12 +77,12 @@ fn main() {
     let mut command_pool = device.create_command_pool_typed(&queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16)
                             .expect("Can't create command pool");
 
-    let mesh = Mesh::new(vertices_vec, indices_vec, &device, &adapter.physical_device);
+	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device, &adapter.physical_device);
 
     //Skeleton Uniform Buffer Setup
     //TODO: Don't try to create this buffer if no bones (len() == 0)
     //FIXME: Causes crash if no bones (i.e. unskinned models)
-    let skeleton_uniform_len = (std::cmp::max(1,skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
+    let skeleton_uniform_len = (std::cmp::max(1,gltf_model.skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
     let skeleton_uniform_unbound = device.create_buffer(skeleton_uniform_len, hal::buffer::Usage::UNIFORM).unwrap();
     let skeleton_uniform_req = device.get_buffer_requirements(&skeleton_uniform_unbound);
 
@@ -359,7 +93,7 @@ fn main() {
 
     {
         let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-        uniform_writer[0..skeleton.bones.len()].copy_from_slice(&skeleton.bones);
+        uniform_writer[0..gltf_model.skeleton.bones.len()].copy_from_slice(&gltf_model.skeleton.bones);
         device.release_mapping_writer(uniform_writer).unwrap();
     }
 
@@ -545,7 +279,7 @@ fn main() {
         device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass")
     };
 
-    let mut renderpass = create_renderpass(&device, &format, &depth_format);
+    let renderpass = create_renderpass(&device, &format, &depth_format);
 
     let create_framebuffers = |device: &back::Device, backbuffer: hal::Backbuffer<back::Backend>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<back::Backend as hal::Backend>::ImageView, renderpass: &<back::Backend as hal::Backend>::RenderPass| {
         match backbuffer {
@@ -724,7 +458,7 @@ fn main() {
         (new_pipeline, new_pipeline_layout)
     };
 
-    let (mut pipeline, mut pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
+    let (pipeline, pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &device, &adapter.physical_device, &mut queue_group, &format, &depth_format);
@@ -759,6 +493,7 @@ fn main() {
         num_frames += 1;
         
         let mut mouse_delta = (0.0, 0.0);
+		let mut scroll_delta = [0.0, 0.0];
 
         events_loop.poll_events(|event| {
             if let winit::Event::WindowEvent { event, .. } = event.clone() {
@@ -775,29 +510,34 @@ fn main() {
 						cimgui_hal.add_input_character(c);
 					}
                     winit::WindowEvent::KeyboardInput{ device_id, input } => {
-						cimgui_hal.update_key_state(input.scancode as usize, input.state == winit::ElementState::Pressed);
-                        match input.virtual_keycode {
-                            Some(winit::VirtualKeyCode::W) => w_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::S) => s_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::A) => a_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::D) => d_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::E) => e_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::Q) => q_state = input.state == winit::ElementState::Pressed,
-                            Some(winit::VirtualKeyCode::F11) => {
-                                if input.state == winit::ElementState::Pressed {
-                                    is_fullscreen = !is_fullscreen;
-                                    if is_fullscreen {
-                                         _window.set_fullscreen(Some(_window.get_primary_monitor()));
-                                    }
-                                    else {
-                                        _window.set_fullscreen(None);
-                                    }
-                                    needs_resize = true;
-                                }
-                            },
-                            Some(winit::VirtualKeyCode::Escape) => running = false,
-                            _ => {},
-                        }
+						match input.virtual_keycode {
+							Some(keycode) => {
+								cimgui_hal.update_key_state(keycode as usize, input.state == winit::ElementState::Pressed);
+								cimgui_hal.update_modifier_state( input.modifiers.ctrl, input.modifiers.shift, input.modifiers.alt, input.modifiers.logo);
+								match (keycode) {
+									winit::VirtualKeyCode::W   => w_state = input.state == winit::ElementState::Pressed,
+									winit::VirtualKeyCode::S   => s_state = input.state == winit::ElementState::Pressed,
+									winit::VirtualKeyCode::A   => a_state = input.state == winit::ElementState::Pressed,
+									winit::VirtualKeyCode::D   => d_state = input.state == winit::ElementState::Pressed,
+									winit::VirtualKeyCode::E   => e_state = input.state == winit::ElementState::Pressed,
+									winit::VirtualKeyCode::Q   => q_state = input.state == winit::ElementState::Pressed,
+									winit::VirtualKeyCode::F11 => {
+										if input.state == winit::ElementState::Pressed {
+											is_fullscreen = !is_fullscreen;
+											if is_fullscreen {
+												_window.set_fullscreen(Some(_window.get_primary_monitor()));
+											}
+											else {
+												_window.set_fullscreen(None);
+											}
+										}
+									},
+									winit::VirtualKeyCode::Escape => running = false,
+									_ => {},
+									}
+								}
+							None => {},
+						}
                     },
                     winit::WindowEvent::MouseInput { state, button, ..} => {
 						//TODO: Replace with match
@@ -822,14 +562,22 @@ fn main() {
             if let winit::Event::DeviceEvent { event, .. }= event.clone() {
                 match event {
                     winit::DeviceEvent::MouseMotion { delta } => {
-                            mouse_delta = delta;
+                    	mouse_delta = delta;
                     },
+					winit::DeviceEvent::MouseWheel { delta } => {
+						
+						scroll_delta = match delta {
+							winit::MouseScrollDelta::LineDelta(x,y) => [x, y],
+							winit::MouseScrollDelta::PixelDelta(pos) =>[pos.x as f32, pos.y as f32],
+						};
+					}
                     _ => {},
                 }
             }
         });
 
-		cimgui_hal.update_mouse_state(mouse_button_states, mouse_pos);
+		//FIXME: Mouse Scroll is bad on touch pads
+		cimgui_hal.update_mouse_state(mouse_button_states, mouse_pos, scroll_delta);
 
 		//TODO: Don't Run Other Input Logic if cimgui_hal wants focus / etc.
 
@@ -862,7 +610,6 @@ fn main() {
         
         //TODO: Skip rendering when actively dragging to resizing
         if needs_resize {
-
             device.wait_idle().unwrap();
 
             //Destroy old resources
@@ -949,13 +696,13 @@ fn main() {
         current_anim_time += delta_time * 1.75;
 
         //TODO: remove hardcoded 1st index
-        if current_anim_time > skeleton.animations[0].duration as f64 {
+        if current_anim_time > gltf_model.skeleton.animations[0].duration as f64 {
             current_anim_time = 0.0;
         }
 
         //TODO: remove hardcoded 1st index
         //Animate Bones
-        for (node_index, channel) in &mut skeleton.animations[0].channels {
+        for (node_index, channel) in &mut gltf_model.skeleton.animations[0].channels {
 
             //Get Current Left & Right Keyframes
             let mut left_key_index = channel.current_left_keyframe;
@@ -985,31 +732,31 @@ fn main() {
                 ChannelType::TranslationChannel(translations) => {
                     let left_value : glm::Vec3 = translations[left_key_index].1.into();
                     let right_value : glm::Vec3 = translations[right_key_index].1.into();
-                    nodes[*node_index].translation = vec3_lerp(&left_value, &right_value, lerp_value).into();
+                    gltf_model.nodes[*node_index].translation = glm::lerp(&left_value, &right_value, lerp_value).into();
                 },
                 ChannelType::RotationChannel(rotations) => {
                     let left_value = glm::Quat::from_vector(rotations[left_key_index].1.into());
                     let right_value = glm::Quat::from_vector(rotations[right_key_index].1.into());
-                    nodes[*node_index].rotation = glm::quat_slerp(&left_value, &right_value, lerp_value).as_vector().clone().into();
+                    gltf_model.nodes[*node_index].rotation = glm::quat_slerp(&left_value, &right_value, lerp_value).as_vector().clone().into();
                  },
                 ChannelType::ScaleChannel(scales) => {
                     let left_value : glm::Vec3 = scales[left_key_index].1.into();
                     let right_value : glm::Vec3 = scales[right_key_index].1.into();
-                    nodes[*node_index].scale = vec3_lerp(&left_value, &right_value, lerp_value).into();
+                    gltf_model.nodes[*node_index].scale = glm::lerp(&left_value, &right_value, lerp_value).into();
                 },
             }
         }
 
         //Now compute each matrix and upload to GPU
-        for (bone_index, mut bone) in skeleton.bones.iter_mut().enumerate() {
-            if let Some(node_index) = skeleton.gpu_index_to_node_index.get(&bone_index) {
-                bone.joint_matrix = (skeleton.inverse_root_transform * compute_global_transform(*node_index, &nodes) * skeleton.inverse_bind_matrices[bone_index]).into();
+        for (bone_index, mut bone) in gltf_model.skeleton.bones.iter_mut().enumerate() {
+            if let Some(node_index) = gltf_model.skeleton.gpu_index_to_node_index.get(&bone_index) {
+                bone.joint_matrix = (gltf_model.skeleton.inverse_root_transform * compute_global_transform(*node_index, &gltf_model.nodes) * gltf_model.skeleton.inverse_bind_matrices[bone_index]).into();
             }
         }
 
         {
             let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-            uniform_writer[0..skeleton.bones.len()].copy_from_slice(&skeleton.bones);
+            uniform_writer[0..gltf_model.skeleton.bones.len()].copy_from_slice(&gltf_model.skeleton.bones);
             device.release_mapping_writer(uniform_writer).unwrap();
         }
         
@@ -1043,12 +790,6 @@ fn main() {
             cmd_buffer.set_viewports(0, &[viewport.clone()]);
             cmd_buffer.set_scissors(0, &[viewport.rect]);
             cmd_buffer.bind_graphics_pipeline(&pipeline);
-            cmd_buffer.bind_vertex_buffers(0, Some((&mesh.vertex_buffer.buffer, 0)));
-            cmd_buffer.bind_index_buffer(hal::buffer::IndexBufferView {
-                buffer: &mesh.index_buffer.buffer,
-                offset: 0,
-                index_type: hal::IndexType::U32,
-            });
             cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]); //TODO
 
             {
@@ -1062,7 +803,16 @@ fn main() {
                     ],
                 );
 
-                encoder.draw_indexed(0..mesh.index_count, 0, 0..100);
+				gltf_model.record_draw_commands(&mut encoder);
+
+				// encoder.bind_vertex_buffers(0, Some((&mesh.vertex_buffer.buffer, 0)));
+				// encoder.bind_index_buffer(hal::buffer::IndexBufferView {
+				// 	buffer: &mesh.index_buffer.buffer,
+				// 	offset: 0,
+				// 	index_type: hal::IndexType::U32,
+				// });
+
+                // encoder.draw_indexed(0..mesh.index_count, 0, 0..100);
             }
 
 			cimgui_hal.render(window_width as f32, window_height as f32, &mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
@@ -1094,7 +844,10 @@ fn main() {
     let total_time = timestamp() - first_timestamp;
     println!("Avg Frame Time: {}", total_time / num_frames as f64);
 
-    mesh.destroy(&device);
+    //gltf_model.destroy(&device);
+
+	cimgui_hal.shutdown();
+
 }
 
 const INITIAL_WIDTH : f64 = 1280.0;
@@ -1108,147 +861,12 @@ struct CameraUniform {
     time: f32,
 }
 
-struct Skeleton {
-    //Flat Array of Bone Matrices (what we update and send to GPU)
-    bones: Vec<GpuBone>,
-    //Maps above indices to GLTF node indices (separate so that the above Vec can be copied directly to the GPU)
-    gpu_index_to_node_index: HashMap<usize, usize>,
-    inverse_bind_matrices: Vec<glm::Mat4>,
-    inverse_root_transform: glm::Mat4,
-    animations: Vec<Animation>,
-}
-
-impl Skeleton {
-    fn new() -> Skeleton {
-        Skeleton {
-            bones: Vec::new(),
-            gpu_index_to_node_index: HashMap::new(),
-            inverse_bind_matrices: Vec::new(),
-            inverse_root_transform: glm::Mat4::identity(),
-            animations: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct GpuBone {
-    joint_matrix: [[f32;4];4],
-}
-
-#[derive(Debug, Clone)]
-struct Node {
-    parent: Option<usize>, //Parent Index
-    children: Vec<usize>, //Children Indices
-    translation: [f32; 3],
-    rotation: [f32; 4],
-    scale: [f32; 3],
-}
-
-impl Node {
-    fn get_transform(&self) -> gltf::scene::Transform {
-        gltf::scene::Transform::Decomposed {
-            translation: self.translation,
-            rotation: self.rotation,
-            scale: self.scale,
-        }
-    }
-}
-
-struct AnimChannel {
-    keyframes: ChannelType,
-    current_left_keyframe : usize,
-}
-
-enum ChannelType {
-    TranslationChannel(Vec<(f32, [f32;3])>),
-    RotationChannel(Vec<(f32, [f32;4])>),
-    ScaleChannel(Vec<(f32, [f32;3])>),
-}
-
-impl ChannelType {
-    //Returns time value for a given index
-    fn get_time(&self, index: usize) -> f32 {
-        match self {
-            ChannelType::TranslationChannel(t) => t[index].0,
-            ChannelType::RotationChannel(r) => r[index].0,
-            ChannelType::ScaleChannel(s) => s[index].0,
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            ChannelType::TranslationChannel(t) => t.len(),
-            ChannelType::RotationChannel(r) => r.len(),
-            ChannelType::ScaleChannel(s) => s.len(),
-        }
-    }
-}
-
-struct Animation {
-    channels : Vec<(usize, AnimChannel)>,
-    duration : f32,
-}
-
 fn timestamp() -> f64 {
     let timespec = time::get_time();
     timespec.sec as f64 + (timespec.nsec as f64 / 1000.0 / 1000.0 / 1000.0)
 }
 
-//Helper Function to map Children to their parent nodes
-fn get_node_parents(nodes : &mut gltf::iter::Nodes) -> std::collections::HashMap<usize,Option<usize>> {
-    
-    let mut node_parents = HashMap::new();
-
-    fn traverse_node(node: &gltf::Node, parent: Option<usize>, node_parents : &mut std::collections::HashMap<usize,Option<usize>> ) {
-        node_parents.insert(node.index(), parent);
-
-        for child in node.children() {
-            traverse_node(&child, Some(node.index()), node_parents);
-        }
-    }
-
-    for node in nodes {
-        traverse_node(&node, None, &mut node_parents);
-    }
-
-    node_parents
-}
-
-//Computes global transform of node at index
-fn compute_global_transform(index: usize, nodes: &Vec<Node>) -> glm::Mat4 {
-    
-    //Build up matrix stack from node to its root
-    let mut matrix_stack : Vec<glm::Mat4> = Vec::new();
-
-    let mut current_index = index;
-
-    let transform = nodes[current_index].get_transform();
-    
-    matrix_stack.push(transform.matrix().into());
-
-    while let Some(parent_index) = nodes[current_index].parent {
-
-        let parent_transform = nodes[parent_index].get_transform();
-
-        matrix_stack.insert(0, parent_transform.matrix().into());
-
-        current_index = parent_index;
-    }
-
-    let mut result = glm::Mat4::identity();
-
-    for matrix in matrix_stack {
-        result = result * matrix;
-    }
-
-    result
-}
-
 fn degrees_to_radians<T>( deg: T) -> T 
 where T: num::Float {
     deg * num::cast(0.0174533).unwrap()
-}
-
-fn vec3_lerp(start: &glm::Vec3, end: &glm::Vec3, percent: f32) -> glm::Vec3 {
-    start + percent * (end - start)
 }

@@ -18,6 +18,8 @@ extern crate gfx_hal as hal;
 use hal::{PhysicalDevice, Device, Backend, DescriptorPool};
 use hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
 
+extern crate winit;
+
 use ::mesh::GpuBuffer;
 use ::gfx_helpers;
 use ::glsl_to_spirv;
@@ -25,7 +27,6 @@ use ::glsl_to_spirv;
 pub struct CimguiHal {
 	gfx_data : CimguiGfxData,
 	font_data : CimguiFontData,
-	input_state : CimguiInputState,
 }
 
 pub struct CimguiGfxData {
@@ -45,13 +46,6 @@ pub struct CimguiFontData {
 	sampler : <B as Backend>::Sampler, //Sampler
 }
 
-pub struct CimguiInputState {
-	mouse_button_states : [bool;5],
-	mouse_pos : [f32;2],
-}
-
-//FIXME: need to set up ImGui KeyMap
-
 impl CimguiHal {
 	pub fn new(device: &back::Device, physical_device : &back::PhysicalDevice, queue_group : &mut hal::QueueGroup<B, hal::Graphics>, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
 
@@ -60,7 +54,7 @@ impl CimguiHal {
 
 		unsafe {
 
-			let ig_context = igCreateContext( std::ptr::null_mut());
+			igCreateContext( std::ptr::null_mut());
 
 			let io = igGetIO();
 
@@ -95,7 +89,6 @@ impl CimguiHal {
 					.acquire_mapping_writer::<u8>(&font_image_upload_memory, 0..font_buffer_req.size)
 					.unwrap();
 
-				//TODO: check that this works properly
 				data[0..(upload_size as usize)].copy_from_slice(std::slice::from_raw_parts(pixels, upload_size as usize));
 				
 				device.release_mapping_writer(data).unwrap();
@@ -215,6 +208,33 @@ impl CimguiHal {
 				},
 			]);
 
+			//Setup Key Mappings
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Tab, winit::VirtualKeyCode::Tab as i32);
+			
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_LeftArrow, winit::VirtualKeyCode::Left as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_RightArrow, winit::VirtualKeyCode::Right as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_UpArrow, winit::VirtualKeyCode::Up as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_DownArrow, winit::VirtualKeyCode::Down as i32);
+			
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_PageUp, winit::VirtualKeyCode::PageUp as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_PageDown, winit::VirtualKeyCode::PageDown as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Home, winit::VirtualKeyCode::Home as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_End, winit::VirtualKeyCode::End as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Insert, winit::VirtualKeyCode::Insert as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Delete, winit::VirtualKeyCode::Delete as i32);
+
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Backspace, winit::VirtualKeyCode::Back as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Space, winit::VirtualKeyCode::Space as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Enter, winit::VirtualKeyCode::Return as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Escape, winit::VirtualKeyCode::Escape as i32);
+
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_A, winit::VirtualKeyCode::A as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_C, winit::VirtualKeyCode::C as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_V, winit::VirtualKeyCode::V as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_X, winit::VirtualKeyCode::X as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Y, winit::VirtualKeyCode::Y as i32);
+			CimguiHal::set_key_mapping(ImGuiKey__ImGuiKey_Z, winit::VirtualKeyCode::Z as i32);
+
 			CimguiHal {
 				gfx_data : gfx_data,
 				font_data : CimguiFontData {
@@ -222,43 +242,53 @@ impl CimguiHal {
 					memory : font_image_memory,
 					image_view : font_image_view,
 					sampler : font_sampler,
-				},
-				input_state : CimguiInputState {
-					mouse_button_states : [false, false, false, false, false],
-					mouse_pos: [0.0, 0.0],
 				}
 			}
 		}
 	}
 
-	pub fn update_mouse_state(&mut self, mouse_button_states: [bool;5], mouse_pos : [f32;2]) {
-		self.input_state.mouse_button_states = mouse_button_states;
-		self.input_state.mouse_pos = mouse_pos;
-
+	pub fn update_mouse_state(&mut self, mouse_button_states: [bool;5], mouse_pos : [f32;2], mouse_wheel: [f32;2]) {
 		unsafe {
 			let io = igGetIO();
 			(*io).MouseDown = mouse_button_states;
 			(*io).MousePos.x = mouse_pos[0];
 			(*io).MousePos.y = mouse_pos[1];
+			(*io).MouseWheelH += mouse_wheel[0];
+			(*io).MouseWheel += mouse_wheel[1];
 		}
 	}
 
-	//TODO: Modifiers
-	pub fn update_key_state(&mut self, key : usize, pressed : bool) {
+	pub fn set_key_mapping(imgui_key : ImGuiKey_, mapping : i32) {
+		unsafe {
+			let io = igGetIO();
+			(*io).KeyMap[imgui_key as usize] = mapping;
+		}
+	}
+
+	pub fn update_modifier_state(&self, key_ctrl : bool, key_shift : bool, key_alt : bool, key_super : bool) {
+		unsafe {
+			let io = igGetIO();
+			(*io).KeyCtrl  = key_ctrl;
+			(*io).KeyShift = key_shift;
+			(*io).KeyAlt   = key_alt;
+			(*io).KeySuper = key_super;
+		}
+	}
+
+	pub fn update_key_state(&self, key : usize, pressed : bool) {
 		unsafe {
 			let io = igGetIO();
 			(*io).KeysDown[key] = pressed;
 		}
 	}
 
-	pub fn add_input_character(&mut self, c : char)
+	pub fn add_input_character(&self, c : char)
 	{
 		unsafe {
 			ImGuiIO_AddInputCharacter(igGetIO(), c as ImWchar);
 		}
 	}
 
-	//TODO: pass in desired framebuffer
 	pub fn render(&mut self, width : f32, height : f32, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
 		unsafe {
 
@@ -297,7 +327,7 @@ impl CimguiHal {
 			let mut in_indices = Vec::new();
 
 			let mut cmd_lists = draw_data.CmdLists;
-			for i in 0..draw_data.CmdListsCount {
+			for _i in 0..draw_data.CmdListsCount {
 				let cmd_list = *(*cmd_lists);
 
 				//Copy Vertex Data
@@ -374,11 +404,11 @@ impl CimguiHal {
 				let mut cmd_lists = draw_data.CmdLists;
 				let mut vtx_offset = 0;
 				let mut idx_offset = 0;
-				for i in 0..draw_data.CmdListsCount {
+				for _i in 0..draw_data.CmdListsCount {
 					let cmd_list = *(*cmd_lists);
 
 					let mut cmds = cmd_list.CmdBuffer.Data;
-					for j in 0..cmd_list.CmdBuffer.Size {
+					for _j in 0..cmd_list.CmdBuffer.Size {
 						let cmd = *cmds;
 
 						//TODO: user callback
@@ -409,6 +439,8 @@ impl CimguiHal {
 		unsafe {
 			igDestroyContext(std::ptr::null_mut());
 		}
+
+		//TODO: Cleanup gfx-hal resources (gfx_data, font_data)
 	}
 
 	//TODO: make this a member function, so we can better handle resizes
