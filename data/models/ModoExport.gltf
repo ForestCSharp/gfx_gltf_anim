@@ -1,0 +1,459 @@
+{
+	"asset": {
+		"generator": "Modov11.2",
+		"version": "2.0"
+	},
+	"scene": 0,
+	"scenes": [
+		{
+			"nodes": [
+				0,
+				6
+			]
+		}
+	],
+	"nodes": [
+		{
+			"name": "Skeleton_Joint",
+			"rotation": [
+				-0.5,
+				-0.5,
+				-0.5,
+				0.4999999701976776
+			],
+			"translation": [
+				0.0,
+				-11.800000190734864,
+				0.0
+			],
+			"scale": [
+				1.0,
+				1.0,
+				1.0
+			],
+			"children": [
+				1
+			]
+		},
+		{
+			"name": "Skeleton_Joint (2)",
+			"rotation": [
+				0.011902231723070145,
+				1.6805175032555947e-17,
+				-1.7210061744427178e-17,
+				0.9999291896820068
+			],
+			"translation": [
+				0.0,
+				-3.1554436208840475e-30,
+				5.0
+			],
+			"scale": [
+				1.0,
+				1.0,
+				1.0
+			],
+			"children": [
+				2
+			]
+		},
+		{
+			"name": "Skeleton_Joint (3)",
+			"rotation": [
+				-0.011902231723070145,
+				2.4241386464342307e-17,
+				-2.4825435533808848e-17,
+				0.9999291896820068
+			],
+			"translation": [
+				-1.0587911840678755e-22,
+				0.0,
+				5.0
+			],
+			"scale": [
+				1.0,
+				1.0,
+				1.0
+			],
+			"children": [
+				3
+			]
+		},
+		{
+			"name": "Skeleton_Joint (4)",
+			"rotation": [
+				-7.844266347589723e-10,
+				-0.00974470004439354,
+				-1.0135424137115479,
+				4.3123353776763909e-8
+			],
+			"translation": [
+				1.0587911840678755e-22,
+				0.0,
+				4.0
+			],
+			"scale": [
+				1.0,
+				1.0,
+				1.0
+			],
+			"children": [
+				4
+			]
+		},
+		{
+			"name": "Skeleton_Joint (5)",
+			"matrix": [
+				-1.0,
+				-8.740661883166467e-8,
+				1.6808964220516032e-9,
+				0.0,
+				8.742277657347586e-8,
+				-0.9998151659965515,
+				0.01922721415758133,
+				0.0,
+				-2.6689551564284875e-17,
+				0.01922721415758133,
+				0.9998151659965515,
+				0.0,
+				0.0,
+				2.7755575615628916e-17,
+				5.0,
+				1.0
+			],
+			"children": [
+				5
+			]
+		},
+		{
+			"name": "Skeleton_Joint (6)",
+			"matrix": [
+				1.8495332862629705e-15,
+				1.0,
+				4.371138828673793e-8,
+				0.0,
+				4.371138828673793e-8,
+				-4.371138828673793e-8,
+				1.0,
+				0.0,
+				1.0,
+				6.115217890173465e-17,
+				-4.371138828673793e-8,
+				0.0,
+				0.0,
+				-3.469446951953614e-18,
+				3.0,
+				1.0
+			]
+		},
+		{
+			"name": "Mesh",
+			"mesh": 0,
+			"skin": 0
+		}
+	],
+	"meshes": [
+		{
+			"primitives": [
+				{
+					"indices": 1,
+					"mode": 4,
+					"material": 0,
+					"attributes": {
+						"POSITION": 0,
+						"NORMAL": 2,
+						"TEXCOORD_0": 3,
+						"JOINTS_0": 4,
+						"WEIGHTS_0": 5
+					}
+				}
+			]
+		}
+	],
+	"buffers": [
+		{
+			"byteLength": 33608,
+			"uri": "ModoExport.bin"
+		}
+	],
+	"bufferViews": [
+		{
+			"buffer": 0,
+			"byteLength": 4476
+		},
+		{
+			"buffer": 0,
+			"byteLength": 7440,
+			"byteOffset": 4476
+		},
+		{
+			"buffer": 0,
+			"byteLength": 4476,
+			"byteOffset": 11916
+		},
+		{
+			"buffer": 0,
+			"byteLength": 2984,
+			"byteOffset": 16392
+		},
+		{
+			"buffer": 0,
+			"byteLength": 2984,
+			"byteOffset": 19376
+		},
+		{
+			"buffer": 0,
+			"byteLength": 5968,
+			"byteOffset": 22360
+		},
+		{
+			"buffer": 0,
+			"byteLength": 248,
+			"byteOffset": 28328
+		},
+		{
+			"buffer": 0,
+			"byteLength": 992,
+			"byteOffset": 28576
+		},
+		{
+			"buffer": 0,
+			"byteLength": 248,
+			"byteOffset": 29568
+		},
+		{
+			"buffer": 0,
+			"byteLength": 992,
+			"byteOffset": 29816
+		},
+		{
+			"buffer": 0,
+			"byteLength": 248,
+			"byteOffset": 30808
+		},
+		{
+			"buffer": 0,
+			"byteLength": 992,
+			"byteOffset": 31056
+		},
+		{
+			"buffer": 0,
+			"byteLength": 248,
+			"byteOffset": 32048
+		},
+		{
+			"buffer": 0,
+			"byteLength": 992,
+			"byteOffset": 32296
+		},
+		{
+			"buffer": 0,
+			"byteLength": 320,
+			"byteOffset": 33288
+		}
+	],
+	"accessors": [
+		{
+			"bufferView": 0,
+			"type": "VEC3",
+			"componentType": 5126,
+			"count": 373,
+			"min": [
+				-2.0,
+				-12.0,
+				-2.0
+			],
+			"max": [
+				2.0,
+				12.0,
+				2.0
+			]
+		},
+		{
+			"bufferView": 1,
+			"type": "SCALAR",
+			"componentType": 5125,
+			"count": 1860
+		},
+		{
+			"bufferView": 2,
+			"type": "VEC3",
+			"componentType": 5126,
+			"count": 373
+		},
+		{
+			"bufferView": 3,
+			"type": "VEC2",
+			"componentType": 5126,
+			"count": 373
+		},
+		{
+			"bufferView": 4,
+			"type": "VEC4",
+			"componentType": 5123,
+			"count": 373
+		},
+		{
+			"bufferView": 5,
+			"type": "VEC4",
+			"componentType": 5126,
+			"count": 373
+		},
+		{
+			"bufferView": 6,
+			"type": "SCALAR",
+			"componentType": 5126,
+			"count": 62,
+			"min": [
+				0.0
+			],
+			"max": [
+				2.5416667461395265
+			]
+		},
+		{
+			"bufferView": 7,
+			"type": "VEC4",
+			"componentType": 5126,
+			"count": 62
+		},
+		{
+			"bufferView": 8,
+			"type": "SCALAR",
+			"componentType": 5126,
+			"count": 62,
+			"min": [
+				0.0
+			],
+			"max": [
+				2.5416667461395265
+			]
+		},
+		{
+			"bufferView": 9,
+			"type": "VEC4",
+			"componentType": 5126,
+			"count": 62
+		},
+		{
+			"bufferView": 10,
+			"type": "SCALAR",
+			"componentType": 5126,
+			"count": 62,
+			"min": [
+				0.0
+			],
+			"max": [
+				2.5416667461395265
+			]
+		},
+		{
+			"bufferView": 11,
+			"type": "VEC4",
+			"componentType": 5126,
+			"count": 62
+		},
+		{
+			"bufferView": 12,
+			"type": "SCALAR",
+			"componentType": 5126,
+			"count": 62,
+			"min": [
+				0.0
+			],
+			"max": [
+				2.5416667461395265
+			]
+		},
+		{
+			"bufferView": 13,
+			"type": "VEC4",
+			"componentType": 5126,
+			"count": 62
+		},
+		{
+			"bufferView": 14,
+			"type": "MAT4",
+			"componentType": 5126,
+			"count": 5
+		}
+	],
+	"materials": [
+		{
+			"pbrMetallicRoughness": {
+				"metallicFactor": 0.5,
+				"roughnessFactor": 0.5
+			}
+		}
+	],
+	"animations": [
+		{
+			"channels": [
+				{
+					"sampler": 0,
+					"target": {
+						"node": 1,
+						"path": "rotation"
+					}
+				},
+				{
+					"sampler": 1,
+					"target": {
+						"node": 0,
+						"path": "rotation"
+					}
+				},
+				{
+					"sampler": 2,
+					"target": {
+						"node": 3,
+						"path": "rotation"
+					}
+				},
+				{
+					"sampler": 3,
+					"target": {
+						"node": 2,
+						"path": "rotation"
+					}
+				}
+			],
+			"samplers": [
+				{
+					"input": 6,
+					"output": 7,
+					"interpolation": "LINEAR"
+				},
+				{
+					"input": 8,
+					"output": 9,
+					"interpolation": "LINEAR"
+				},
+				{
+					"input": 10,
+					"output": 11,
+					"interpolation": "LINEAR"
+				},
+				{
+					"input": 12,
+					"output": 13,
+					"interpolation": "LINEAR"
+				}
+			]
+		}
+	],
+	"skins": [
+		{
+			"inverseBindMatrices": 14,
+			"skeleton": 0,
+			"joints": [
+				0,
+				1,
+				2,
+				3,
+				4
+			],
+			"name": "Normalizing Folder_Skin"
+		}
+	]
+}

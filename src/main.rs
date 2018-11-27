@@ -93,7 +93,7 @@ fn main() {
 
     {
         let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-        uniform_writer[0..gltf_model.skeleton.bones.len()].copy_from_slice(&gltf_model.skeleton.bones);
+		uniform_writer[0..gltf_model.skeleton.bones.len()].copy_from_slice(&gltf_model.skeleton.bones);
         device.release_mapping_writer(uniform_writer).unwrap();
     }
 
@@ -683,8 +683,7 @@ fn main() {
         ).into();
 
         camera_uniform_struct.model_matrix = (glm::translation(&glm::vec3(0.,0., -1.))
-                                              * glm::rotation(std::f32::consts::PI / 4.0, &glm::vec3(0.,1.,0.))
-                                              * glm::rotation(-std::f32::consts::PI / 2.0, &glm::vec3(1.,0.,0.))).into();
+                                              * glm::rotation(std::f32::consts::PI / 4.0, &glm::vec3(0.,1.,0.))).into();
 
         camera_uniform_struct.time = time as f32;
 

@@ -20,17 +20,20 @@ use mesh::{Vertex,Mesh};
 
 pub struct GltfModel {
 	pub meshes 	 : Vec<Mesh>,
-	pub skeleton : Skeleton, //TODO: Make optinoal
+	pub skeleton : Skeleton, //TODO: Make optional
 	pub nodes    : Vec<Node>,
 }
 
+//TODO: Store Skeleton Gpu Resources
+//TODO: Function to animate and upload to GPU
+//TODO: Bind correct uniform buffer for a given animated mesh
 impl GltfModel {
 	pub fn new( file_path : &str, device : &back::Device, physical_device : &back::PhysicalDevice) -> GltfModel {
 
 		let mut skeleton = Skeleton::new();
 
 		//Load GLTF Model
-    	let (gltf_model, buffers, _) = gltf::import(file_path).unwrap();
+		let (gltf_model, buffers, _) = gltf::import(file_path).unwrap();
 
 		for anim in gltf_model.animations() {
 
@@ -174,12 +177,12 @@ impl GltfModel {
 						//if skinned, we need to get the JOINTS_0 and WEIGHTS_0 attributes
 						let mut joints_iter = match reader.read_joints(0) {
 							Some(joints_iter) => Some(joints_iter.into_u16()),
-							None => None,
+							None => {println!("NO JOINTS"); None},
 						};
 
 						let mut weights_iter = match reader.read_weights(0) {
 							Some(weights_iter) => Some(weights_iter.into_f32()),
-							None => None,
+							None => {println!("NO WEIGHTS"); None},
 						};
 
 						//Iterate over our positions
@@ -284,7 +287,7 @@ impl GltfModel {
 							};
 							
 							//Build up skeleton
-							let joint_transform : glm::Mat4 = compute_global_transform(joint.index(), &nodes);
+							let joint_transform = compute_global_transform(joint.index(), &nodes);
 
 							let joint_matrix = skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
 
@@ -319,7 +322,7 @@ impl GltfModel {
 				index_type: hal::IndexType::U32,
 			});
 
-			encoder.draw_indexed(0..mesh.index_count, 0, 0..100);
+			encoder.draw_indexed(0..mesh.index_count, 0, 0..1);
 		}
 	}
 
@@ -416,16 +419,17 @@ pub fn get_node_parents(nodes : &mut gltf::iter::Nodes) -> std::collections::Has
     
     let mut node_parents = HashMap::new();
 
-    fn traverse_node(node: &gltf::Node, parent: Option<usize>, node_parents : &mut std::collections::HashMap<usize,Option<usize>> ) {
-        node_parents.insert(node.index(), parent);
+    for node in nodes.clone() {
 
-        for child in node.children() {
-            traverse_node(&child, Some(node.index()), node_parents);
-        }
-    }
+		//Default to "No Parent" or None
+		node_parents.insert(node.index(), None);
 
-    for node in nodes {
-        traverse_node(&node, None, &mut node_parents);
+		//If we encounter ourselves (node) when searching children, we've found our parent
+		for potential_parent in nodes.clone() {
+			if potential_parent.children().find( |child| child.index() == node.index()).is_some() {
+				node_parents.insert(node.index(), Some(potential_parent.index()));
+			}
+		}
     }
 
     node_parents

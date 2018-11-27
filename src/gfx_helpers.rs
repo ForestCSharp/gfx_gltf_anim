@@ -8,7 +8,7 @@ extern crate gfx_backend_vulkan as back;
 extern crate gfx_hal as hal;
 use hal::PhysicalDevice;
 
-//TODO: handle multiple memory types
+//TODO: handle multiple desired memory properties
 pub fn get_memory_type( physical_device: &back::PhysicalDevice, 
 						memory_requirements : &hal::memory::Requirements, 
 						desired_memory_property : hal::memory::Properties) 
