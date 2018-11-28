@@ -86,7 +86,7 @@ impl Mesh {
     }
 
 	//TODO: remove dependency on primary command buffers
-	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>)
+	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>, instance_count : u32)
 	{
 		encoder.bind_vertex_buffers(0, Some((&self.vertex_buffer.buffer, 0)));
 
@@ -97,10 +97,10 @@ impl Mesh {
 					offset: 0,
 					index_type: hal::IndexType::U32,
 				});
-				encoder.draw_indexed(0..index_buffer.count, 0, 0..1);
+				encoder.draw_indexed(0..index_buffer.count, 0, 0..instance_count);
 			},
 			None => {
-				encoder.draw(0..self.vertex_buffer.count, 0..1);
+				encoder.draw(0..self.vertex_buffer.count, 0..instance_count);
 			}
 		}
 	}

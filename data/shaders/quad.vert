@@ -49,7 +49,7 @@ void main() {
     Translation[2][2] = 1;
     Translation[3][3] = 1;
     Translation[3][0] = 1.0 * (gl_InstanceIndex / 10) - 10.0;
-    Translation[3][1] = -1.0 * mod(gl_InstanceIndex,10);
+    Translation[3][2] = -1.0 * mod(gl_InstanceIndex,10);
 
     mat4 ModelMatrix = cam.model_matrix * Translation;
 

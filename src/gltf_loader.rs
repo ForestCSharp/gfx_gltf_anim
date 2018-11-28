@@ -15,7 +15,6 @@ use std::collections::HashMap;
 
 extern crate gltf;
 
-use ::mesh;
 use mesh::{Vertex,Mesh};
 
 pub struct GltfModel {
@@ -106,9 +105,6 @@ impl GltfModel {
 			});
 		}
 
-		//Map child indices to parent indices (used below when building up node Vec)
-		let node_parents = get_node_parents(&mut gltf_model.nodes());
-
 		//Store all nodes (their index == index in vec, parent index, children indices, and transform)
 		let mut nodes = Vec::new();
 
@@ -119,9 +115,18 @@ impl GltfModel {
 
 			let (translation, rotation, scale) = node.transform().decomposed();
 
+			let mut parent = None;
+
+			//If we encounter ourselves (node) when searching children, we've found our parent
+			for potential_parent in gltf_model.nodes() {
+				if potential_parent.children().find( |child| child.index() == node.index()).is_some() {
+					parent = Some(potential_parent.index());
+				}
+			}
+
 			nodes.push(
 				Node {
-					parent: node_parents[&node.index()],
+					parent: parent,
 					children: children_indices,
 					translation: translation,
 					rotation: rotation,
@@ -313,9 +318,9 @@ impl GltfModel {
 	}
 
 	//TODO: remove dependency on primary command buffers
-	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>) {
+	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>, instance_count : u32) {
 		for mesh in &self.meshes {
-			mesh.record_draw_commands(encoder);
+			mesh.record_draw_commands(encoder, instance_count);
 		}
 	}
 
@@ -405,27 +410,6 @@ impl ChannelType {
 pub struct Animation {
     pub channels : Vec<(usize, AnimChannel)>,
     pub duration : f32,
-}
-
-//Helper Function to map Children to their parent nodes
-pub fn get_node_parents(nodes : &mut gltf::iter::Nodes) -> std::collections::HashMap<usize,Option<usize>> {
-    
-    let mut node_parents = HashMap::new();
-
-    for node in nodes.clone() {
-
-		//Default to "No Parent" or None
-		node_parents.insert(node.index(), None);
-
-		//If we encounter ourselves (node) when searching children, we've found our parent
-		for potential_parent in nodes.clone() {
-			if potential_parent.children().find( |child| child.index() == node.index()).is_some() {
-				node_parents.insert(node.index(), Some(potential_parent.index()));
-			}
-		}
-    }
-
-    node_parents
 }
 
 //Computes global transform of node at index

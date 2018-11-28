@@ -514,7 +514,7 @@ fn main() {
 							Some(keycode) => {
 								cimgui_hal.update_key_state(keycode as usize, input.state == winit::ElementState::Pressed);
 								cimgui_hal.update_modifier_state( input.modifiers.ctrl, input.modifiers.shift, input.modifiers.alt, input.modifiers.logo);
-								match (keycode) {
+								match keycode {
 									winit::VirtualKeyCode::W   => w_state = input.state == winit::ElementState::Pressed,
 									winit::VirtualKeyCode::S   => s_state = input.state == winit::ElementState::Pressed,
 									winit::VirtualKeyCode::A   => a_state = input.state == winit::ElementState::Pressed,
@@ -802,16 +802,7 @@ fn main() {
                     ],
                 );
 
-				gltf_model.record_draw_commands(&mut encoder);
-
-				// encoder.bind_vertex_buffers(0, Some((&mesh.vertex_buffer.buffer, 0)));
-				// encoder.bind_index_buffer(hal::buffer::IndexBufferView {
-				// 	buffer: &mesh.index_buffer.buffer,
-				// 	offset: 0,
-				// 	index_type: hal::IndexType::U32,
-				// });
-
-                // encoder.draw_indexed(0..mesh.index_count, 0, 0..100);
+				gltf_model.record_draw_commands(&mut encoder, 100);
             }
 
 			cimgui_hal.render(window_width as f32, window_height as f32, &mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
