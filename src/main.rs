@@ -26,10 +26,10 @@ extern crate memoffset;
 use std::fs;
 use std::io::{Read};
 
-use hal::{Instance, PhysicalDevice, Device, DescriptorPool, Surface, Swapchain};
+use hal::{Instance, Device, DescriptorPool, Surface, Swapchain};
 
 mod mesh;
-use mesh::{Vertex,Mesh};
+use mesh::{Vertex};
 
 mod cimgui_hal;
 use cimgui_hal::*;
@@ -47,7 +47,7 @@ fn main() {
 
     //Create a window builder
     let window_builder = winit::WindowBuilder::new()
-        .with_dimensions(winit::dpi::LogicalSize::new(INITIAL_WIDTH, INITIAL_HEIGHT))
+        .with_dimensions(winit::dpi::LogicalSize::new(DIMS.width as f64, DIMS.height as f64))
         .with_title("gfx gltf anim".to_string());
 
     //Create a winit events loop
@@ -64,8 +64,6 @@ fn main() {
 
     //Just pick the first GPU we find for now
     let adapter = adapters.remove(0);
-    let memory_types = adapter.physical_device.memory_properties().memory_types;
-    let _limits = adapter.physical_device.limits();
 
     //Create Device and Queue from our adapter
     let (mut device, mut queue_group) = adapter
@@ -104,7 +102,7 @@ fn main() {
     let view_matrix = glm::Mat4::identity();
 
     let perspective_matrix = glm::perspective(
-        INITIAL_WIDTH as f32 / INITIAL_HEIGHT as f32,
+        DIMS.width as f32 / DIMS.height as f32,
         degrees_to_radians(90.0f32),
         0.001,
         10000.0
@@ -194,7 +192,7 @@ fn main() {
                 .unwrap_or(formats[0])
         });
 
-        let swap_config = hal::SwapchainConfig::from_caps(&capabilities, new_format);
+        let swap_config = hal::SwapchainConfig::from_caps(&capabilities, new_format, DIMS);
         let new_extent = swap_config.extent.to_extent();
         let (new_swapchain, new_backbuffer) = device.create_swapchain(surface, swap_config, None).expect("Can't create swapchain");
 
@@ -734,8 +732,8 @@ fn main() {
                     gltf_model.nodes[*node_index].translation = glm::lerp(&left_value, &right_value, lerp_value).into();
                 },
                 ChannelType::RotationChannel(rotations) => {
-                    let left_value = glm::Quat::from_vector(rotations[left_key_index].1.into());
-                    let right_value = glm::Quat::from_vector(rotations[right_key_index].1.into());
+                    let left_value  = glm::Quat{ coords: rotations[left_key_index].1.into() };
+                    let right_value = glm::Quat{ coords: rotations[right_key_index].1.into() };
                     gltf_model.nodes[*node_index].rotation = glm::quat_slerp(&left_value, &right_value, lerp_value).as_vector().clone().into();
                  },
                 ChannelType::ScaleChannel(scales) => {
@@ -805,7 +803,7 @@ fn main() {
 				gltf_model.record_draw_commands(&mut encoder, 100);
             }
 
-			cimgui_hal.render(window_width as f32, window_height as f32, &mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
+			cimgui_hal.render(window_width as f32, window_height as f32, delta_time as f32, &mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
 
             cmd_buffer.finish()
         };
@@ -840,8 +838,8 @@ fn main() {
 
 }
 
-const INITIAL_WIDTH : f64 = 1280.0;
-const INITIAL_HEIGHT : f64 = 720.0;
+#[cfg_attr(rustfmt, rustfmt_skip)]
+const DIMS: hal::window::Extent2D = hal::window::Extent2D { width: 1280, height: 720 };
 
 #[derive(Debug, Clone, Copy)]
 struct CameraUniform {

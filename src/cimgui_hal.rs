@@ -15,7 +15,7 @@ extern crate gfx_backend_vulkan as back;
 use back::Backend as B;
 
 extern crate gfx_hal as hal;
-use hal::{PhysicalDevice, Device, Backend, DescriptorPool};
+use hal::{Device, Backend, DescriptorPool};
 use hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
 
 extern crate winit;
@@ -289,16 +289,14 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn render(&mut self, width : f32, height : f32, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
+	pub fn render(&mut self, width : f32, height : f32, delta_time : f32, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
 		unsafe {
-
-			////TODO: Remove Test Gui Code Below
 			let io = igGetIO();
 
 			(*io).DisplaySize = ImVec2{ x: width, y: height};
-			//TODO: Set this to correct value
-			(*io).DeltaTime = 1.0f32 / 60.0f32;
+			(*io).DeltaTime = delta_time;
 
+			////TODO: Remove Test Gui Code Below
 			igNewFrame();
 
 			static mut TEST_FLOAT : f32 = 1.0;
@@ -410,19 +408,24 @@ impl CimguiHal {
 					for _j in 0..cmd_list.CmdBuffer.Size {
 						let cmd = *cmds;
 
-						//TODO: user callback
+						//TODO: Test user callback
+						if cmd.UserCallback.is_some() {
+							cmd.UserCallback.unwrap()(&cmd_list, &cmd);
+						}
+						else {
+							let scissor_rect = hal::pso::Rect {
+								x : { if (cmd.ClipRect.x - display_pos.x) as i16 > 0 { (cmd.ClipRect.x - display_pos.x) as i16 } else { 0 } },
+								y : { if (cmd.ClipRect.y - display_pos.y) as i16 > 0 { (cmd.ClipRect.y - display_pos.y) as i16 } else { 0 } },
+								w : (cmd.ClipRect.z - cmd.ClipRect.x) as i16,
+								h : (cmd.ClipRect.w - cmd.ClipRect.y) as i16,
+							};
+							
+							//FIXME: causing crashes on vulkan backend
+							encoder.set_scissors(0, &[scissor_rect]);
 
-						let scissor_rect = hal::pso::Rect {
-							x : { if (cmd.ClipRect.x - display_pos.x) as i16 > 0 { (cmd.ClipRect.x - display_pos.x) as i16 } else { 0 } },
-							y : { if (cmd.ClipRect.y - display_pos.y) as i16 > 0 { (cmd.ClipRect.y - display_pos.y) as i16 } else { 0 } },
-							w : (cmd.ClipRect.z - cmd.ClipRect.x) as i16,
-							h : (cmd.ClipRect.w - cmd.ClipRect.y) as i16,
-						};
-						
-						//FIXME: causing crashes on vulkan backend
-						encoder.set_scissors(0, &[scissor_rect]);
+							encoder.draw_indexed(idx_offset..(idx_offset + cmd.ElemCount), vtx_offset, 0..1);
 
-						encoder.draw_indexed(idx_offset..(idx_offset + cmd.ElemCount), vtx_offset, 0..1);
+						}
 
 						idx_offset += cmd.ElemCount;
 						cmds = cmds.offset(1);
@@ -442,7 +445,6 @@ impl CimguiHal {
 		//TODO: Cleanup gfx-hal resources (gfx_data, font_data)
 	}
 
-	//TODO: make this a member function, so we can better handle resizes
 	fn create_gfx_resources(device: &back::Device, color_format : &hal::format::Format, depth_format: &hal::format::Format) -> CimguiGfxData {
 		
 		//Descriptor Set

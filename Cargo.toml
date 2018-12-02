@@ -14,7 +14,7 @@ metal = ["gfx-backend-metal"]
 [dependencies]
 cimgui = { git = "https://github.com/ForestCSharp/cimgui-rs.git" }
 num = "*"
-winit = "0.17"
+winit = "0.18"
 image = "0.19"
 nalgebra-glm = "0.2"
 time = "0.1.40"

@@ -8,7 +8,6 @@ extern crate gfx_backend_vulkan as back;
 use back::Backend as B;
 
 extern crate gfx_hal as hal;
-use hal::{PhysicalDevice, Device, Backend};
 
 extern crate nalgebra_glm as glm;
 use std::collections::HashMap;
@@ -317,8 +316,7 @@ impl GltfModel {
 		}
 	}
 
-	//TODO: remove dependency on primary command buffers
-	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, hal::command::Primary>, instance_count : u32) {
+	pub fn record_draw_commands<Level : hal::command::Level>( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, Level>, instance_count : u32) {
 		for mesh in &self.meshes {
 			mesh.record_draw_commands(encoder, instance_count);
 		}
