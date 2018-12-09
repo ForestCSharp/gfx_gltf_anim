@@ -147,6 +147,7 @@ impl CimguiHal {
 					states: (hal::image::Access::empty(), hal::image::Layout::Undefined)
 						..(hal::image::Access::TRANSFER_WRITE, hal::image::Layout::TransferDstOptimal),
 					target: &font_image,
+					families: None,
 					range: color_range.clone(),
 				};
 
@@ -182,6 +183,7 @@ impl CimguiHal {
 					states: (hal::image::Access::TRANSFER_WRITE, hal::image::Layout::TransferDstOptimal)
 						..(hal::image::Access::SHADER_READ, hal::image::Layout::ShaderReadOnlyOptimal),
 					target: &font_image,
+					families: None,
 					range: color_range.clone(),
 				};
 				cmd_buffer.pipeline_barrier(
