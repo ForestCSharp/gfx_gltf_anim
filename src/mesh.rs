@@ -1,16 +1,9 @@
-#[cfg(feature = "dx12")]
-extern crate gfx_backend_dx12 as back;
-#[cfg(feature = "metal")]
-extern crate gfx_backend_metal as back;
-#[cfg(feature = "vulkan")]
-extern crate gfx_backend_vulkan as back;
-
-use back::Backend as B;
-
-extern crate gfx_hal as hal;
-use hal::{Device, Backend};
-
+use ::hal;
+use ::back;
+use ::B;
 use ::gfx_helpers;
+
+use hal::{Device, Backend};
 
 pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
@@ -50,10 +43,21 @@ impl GpuBuffer {
 		}
 	}
 
-	pub fn recreate<T : Copy>(&mut self, data : &[T], device : &back::Device, physical_device : &back::PhysicalDevice) {
+	fn recreate<T : Copy>(&mut self, data : &[T], device : &back::Device, physical_device : &back::PhysicalDevice) {
 		let new_buffer = GpuBuffer::new(data, self.usage, device, physical_device);
 		self.buffer = new_buffer.buffer;
 		self.memory = new_buffer.memory;
+		self.count  = data.len() as u32;
+	}
+
+	pub fn reupload<T : Copy>(&mut self, data: &[T], device : &back::Device, physical_device : &back::PhysicalDevice) {
+		if data.len() as u32 > self.count {
+			self.recreate(data, device, physical_device);
+		} else {
+			let mut mapping_writer = device.acquire_mapping_writer::<T>(&self.memory, 0..(self.count as u64 * (std::mem::size_of::<T>() as u64))).unwrap();
+			mapping_writer[0..data.len()].copy_from_slice(&data);
+			device.release_mapping_writer(mapping_writer).unwrap();
+		}
 	}
 
     pub fn destroy(self, device: &back::Device) {

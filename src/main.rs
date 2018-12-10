@@ -10,6 +10,8 @@ extern crate gfx_backend_metal as back;
 #[cfg(feature = "vulkan")]
 extern crate gfx_backend_vulkan as back;
 
+use back::Backend as B;
+
 extern crate gfx_hal as hal;
 
 extern crate num;
@@ -29,7 +31,7 @@ use std::io::{Read};
 use hal::{Instance, Device, DescriptorPool, Surface, Swapchain};
 
 mod mesh;
-use mesh::{Vertex};
+use mesh::{GpuBuffer, Vertex};
 
 mod cimgui_hal;
 use cimgui_hal::*;
@@ -77,23 +79,8 @@ fn main() {
 
 	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device, &adapter.physical_device);
 
-    //Skeleton Uniform Buffer Setup
     //TODO: Don't try to create this buffer if no bones (len() == 0)
     //FIXME: Causes crash if no bones (i.e. unskinned models)
-    let skeleton_uniform_len = (std::cmp::max(1,gltf_model.skeleton.bones.len()) * std::mem::size_of::<GpuBone>()) as u64;
-    let skeleton_uniform_unbound = device.create_buffer(skeleton_uniform_len, hal::buffer::Usage::UNIFORM).unwrap();
-    let skeleton_uniform_req = device.get_buffer_requirements(&skeleton_uniform_unbound);
-
-    let skeleton_upload_type = gfx_helpers::get_memory_type( &adapter.physical_device, &skeleton_uniform_req, hal::memory::Properties::CPU_VISIBLE);
-
-    let skeleton_uniform_memory = device.allocate_memory(skeleton_upload_type, skeleton_uniform_req.size).unwrap();
-    let skeleton_uniform_buffer = device.bind_buffer_memory(&skeleton_uniform_memory, 0, skeleton_uniform_unbound).unwrap();
-
-    {
-        let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-		uniform_writer[0..gltf_model.skeleton.bones.len()].copy_from_slice(&gltf_model.skeleton.bones);
-        device.release_mapping_writer(uniform_writer).unwrap();
-    }
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -116,20 +103,7 @@ fn main() {
     };
 
     //Uniform Buffer Setup
-    let uniform_buffer_len = std::mem::size_of::<CameraUniform>() as u64;
-    let uniform_buffer_unbound = device.create_buffer(uniform_buffer_len, hal::buffer::Usage::UNIFORM).unwrap();
-    let uniform_buffer_req = device.get_buffer_requirements(&uniform_buffer_unbound);
-
-    let uniform_upload_type = gfx_helpers::get_memory_type(&adapter.physical_device, &uniform_buffer_req, hal::memory::Properties::CPU_VISIBLE);
-
-    let uniform_buffer_memory = device.allocate_memory(uniform_upload_type, uniform_buffer_req.size).unwrap();
-    let uniform_buffer = device.bind_buffer_memory(&uniform_buffer_memory, 0, uniform_buffer_unbound).unwrap();
-
-    {
-        let mut uniform_writer = device.acquire_mapping_writer::<CameraUniform>(&uniform_buffer_memory, 0..uniform_buffer_req.size).unwrap();
-        uniform_writer[0] = camera_uniform_struct; 
-        device.release_mapping_writer(uniform_writer).unwrap();
-    }
+	let mut uniform_gpu_buffer = GpuBuffer::new(&[camera_uniform_struct], hal::buffer::Usage::UNIFORM, &device, &adapter.physical_device);
 
     //Descriptor Set
     let set_layout = device.create_descriptor_set_layout( 
@@ -172,13 +146,13 @@ fn main() {
             set: &desc_set,
             binding: 0,
             array_offset: 0,
-            descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_buffer, None..None)),
+            descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
         },
         hal::pso::DescriptorSetWrite {
             set: &desc_set,
             binding: 1,
             array_offset: 0,
-            descriptors: Some(hal::pso::Descriptor::Buffer(&skeleton_uniform_buffer, None..None)),
+            descriptors: Some(hal::pso::Descriptor::Buffer(&gltf_model.skeleton.gpu_buffer.buffer, None..None)),
         },
     ]);
 
@@ -685,11 +659,8 @@ fn main() {
 
         camera_uniform_struct.time = time as f32;
 
-        {
-            let mut uniform_writer = device.acquire_mapping_writer::<CameraUniform>(&uniform_buffer_memory, 0..uniform_buffer_req.size).unwrap();
-            uniform_writer[0] = camera_uniform_struct; 
-            device.release_mapping_writer(uniform_writer).unwrap();
-        }
+		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device, &adapter.physical_device);
+
         current_anim_time += delta_time * 1.75;
 
         //TODO: remove hardcoded 1st index
@@ -751,11 +722,7 @@ fn main() {
             }
         }
 
-        {
-            let mut uniform_writer = device.acquire_mapping_writer::<GpuBone>(&skeleton_uniform_memory, 0..skeleton_uniform_req.size).unwrap();
-            uniform_writer[0..gltf_model.skeleton.bones.len()].copy_from_slice(&gltf_model.skeleton.bones);
-            device.release_mapping_writer(uniform_writer).unwrap();
-        }
+		gltf_model.skeleton.gpu_buffer.reupload(&gltf_model.skeleton.bones, &device, &adapter.physical_device);
         
         device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();

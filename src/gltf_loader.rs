@@ -1,20 +1,13 @@
-#[cfg(feature = "dx12")]
-extern crate gfx_backend_dx12 as back;
-#[cfg(feature = "metal")]
-extern crate gfx_backend_metal as back;
-#[cfg(feature = "vulkan")]
-extern crate gfx_backend_vulkan as back;
-
-use back::Backend as B;
-
-extern crate gfx_hal as hal;
+use ::hal;
+use ::back;
+use ::B;
 
 extern crate nalgebra_glm as glm;
 use std::collections::HashMap;
 
 extern crate gltf;
 
-use mesh::{Vertex,Mesh};
+use mesh::{Vertex,Mesh, GpuBuffer};
 
 pub struct GltfModel {
 	pub meshes 	 : Vec<Mesh>,
@@ -22,16 +15,19 @@ pub struct GltfModel {
 	pub nodes    : Vec<Node>,
 }
 
-//TODO: Store Skeleton Gpu Resources
 //TODO: Function to animate and upload to GPU
 //TODO: Bind correct uniform buffer for a given animated mesh
 impl GltfModel {
 	pub fn new( file_path : &str, device : &back::Device, physical_device : &back::PhysicalDevice) -> GltfModel {
 
-		let mut skeleton = Skeleton::new();
-
 		//Load GLTF Model
 		let (gltf_model, buffers, _) = gltf::import(file_path).unwrap();
+
+		let mut animations = Vec::new();
+		let mut inverse_root_transform = glm::Mat4::identity();
+		let mut bones = Vec::new();
+		let mut inverse_bind_matrices = Vec::new();
+		let mut gpu_index_to_node_index = HashMap::new();
 
 		for anim in gltf_model.animations() {
 
@@ -98,7 +94,7 @@ impl GltfModel {
 				}
 			}
 
-			skeleton.animations.push ( Animation {
+			animations.push ( Animation {
 				channels: anim_channels,
 				duration: anim_duration,
 			});
@@ -265,9 +261,9 @@ impl GltfModel {
 					Some(skin) => {
 						let reader = skin.reader(|buffer| Some(&buffers[buffer.index()]));
 						//If "None", then each joint's inv_bind_matrix is assumed to be 4x4 Identity matrix
-						let mut inverse_bind_matrices = reader.read_inverse_bind_matrices();
+						let mut gltf_inverse_bind_matrices = reader.read_inverse_bind_matrices();
 
-						skeleton.inverse_root_transform = glm::inverse(&node.transform().matrix().into());
+						inverse_root_transform = glm::inverse(&node.transform().matrix().into());
 						
 						//Joints are nodes
 						for joint in skin.joints() {
@@ -276,7 +272,7 @@ impl GltfModel {
 
 								let mut out_matrix : glm::Mat4 = glm::Mat4::identity();
 
-								match &mut inverse_bind_matrices {
+								match &mut gltf_inverse_bind_matrices {
 									Some(inverse_bind_matrices) => {
 										match inverse_bind_matrices.next() {
 											Some(matrix) => out_matrix = matrix.into(),
@@ -292,16 +288,16 @@ impl GltfModel {
 							//Build up skeleton
 							let joint_transform = compute_global_transform(joint.index(), &nodes);
 
-							let joint_matrix = skeleton.inverse_root_transform * joint_transform * inverse_bind_matrix;
+							let joint_matrix = inverse_root_transform * joint_transform * inverse_bind_matrix;
 
-							skeleton.bones.push(GpuBone {
+							bones.push(GpuBone {
 								joint_matrix: joint_matrix.into(),
 							});
 
-							skeleton.inverse_bind_matrices.push(inverse_bind_matrix);
+							inverse_bind_matrices.push(inverse_bind_matrix);
 
 							//map index
-							skeleton.gpu_index_to_node_index.insert(skeleton.bones.len() - 1, joint.index());
+							gpu_index_to_node_index.insert(bones.len() - 1, joint.index());
 						}
 					},
 					None => {},
@@ -311,7 +307,14 @@ impl GltfModel {
 		
 		GltfModel {
 			meshes 	 : meshes,
-			skeleton : skeleton,
+			skeleton : Skeleton {
+				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, device, physical_device),
+				bones : bones,
+				gpu_index_to_node_index : gpu_index_to_node_index,
+				inverse_bind_matrices : inverse_bind_matrices,
+				inverse_root_transform : inverse_root_transform,
+				animations : animations,
+			},
 			nodes 	 : nodes,
 		}
 	}
@@ -337,18 +340,7 @@ pub struct Skeleton {
     pub inverse_bind_matrices: Vec<glm::Mat4>,
     pub inverse_root_transform: glm::Mat4,
     pub animations: Vec<Animation>,
-}
-
-impl Skeleton {
-    pub fn new() -> Skeleton {
-        Skeleton {
-            bones: Vec::new(),
-            gpu_index_to_node_index: HashMap::new(),
-            inverse_bind_matrices: Vec::new(),
-            inverse_root_transform: glm::Mat4::identity(),
-            animations: Vec::new(),
-        }
-    }
+	pub gpu_buffer: GpuBuffer,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -5,16 +5,10 @@ use std::ffi::CString;
 use std::fs;
 use std::io::{Read};
 
-#[cfg(feature = "dx12")]
-extern crate gfx_backend_dx12 as back;
-#[cfg(feature = "metal")]
-extern crate gfx_backend_metal as back;
-#[cfg(feature = "vulkan")]
-extern crate gfx_backend_vulkan as back;
+use ::hal;
+use ::back;
+use ::B;
 
-use back::Backend as B;
-
-extern crate gfx_hal as hal;
 use hal::{Device, Backend, DescriptorPool};
 use hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
 
@@ -23,6 +17,8 @@ extern crate winit;
 use ::mesh::GpuBuffer;
 use ::gfx_helpers;
 use ::glsl_to_spirv;
+
+static mut TEST_FLOAT : f32 = 1.0;
 
 pub struct CimguiHal {
 	gfx_data : CimguiGfxData,
@@ -301,8 +297,6 @@ impl CimguiHal {
 			////TODO: Remove Test Gui Code Below
 			igNewFrame();
 
-			static mut TEST_FLOAT : f32 = 1.0;
-
 			igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
 			igText(CString::new("Hello, world!").unwrap().as_ptr());
 			igSliderFloat(CString::new("test float").unwrap().as_ptr(), &mut TEST_FLOAT, 0.0f32, 1.0f32, std::ptr::null(), 1.0f32);
@@ -347,14 +341,14 @@ impl CimguiHal {
 
 			//TODO: Better way to handle buffer recreation
 			if self.gfx_data.vertex_buffer.is_some() {
-				self.gfx_data.vertex_buffer.as_mut().unwrap().recreate(&in_vertices, device, physical_device);
+				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device, physical_device);
 			} else {
 			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, device, physical_device));
 			}
 
 			//TODO: Better way to handle buffer recreation
 			if self.gfx_data.index_buffer.is_some() {
-				self.gfx_data.index_buffer.as_mut().unwrap().recreate(&in_indices, device, physical_device);
+				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device, physical_device);
 			} else {
 			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, device, physical_device));
 			}
