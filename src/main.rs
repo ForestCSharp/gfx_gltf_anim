@@ -19,7 +19,6 @@ extern crate glsl_to_spirv;
 extern crate winit;
 extern crate gltf;
 extern crate nalgebra_glm as glm;
-extern crate rand;
 extern crate time;
 
 #[macro_use]
@@ -78,9 +77,6 @@ fn main() {
                             .expect("Can't create command pool");
 
 	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device, &adapter.physical_device);
-
-    //TODO: Don't try to create this buffer if no bones (len() == 0)
-    //FIXME: Causes crash if no bones (i.e. unskinned models)
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -661,7 +657,7 @@ fn main() {
 
 		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device, &adapter.physical_device);
 
-        current_anim_time += delta_time * 1.75;
+        current_anim_time += delta_time * unsafe { cimgui_hal::ANIM_SPEED as f64 };
 
         //TODO: remove hardcoded 1st index
         if current_anim_time > gltf_model.skeleton.animations[0].duration as f64 {
@@ -801,7 +797,7 @@ fn main() {
 
     gltf_model.destroy(&device);
 
-	cimgui_hal.shutdown();
+	cimgui_hal.shutdown(&device);
 
 }
 

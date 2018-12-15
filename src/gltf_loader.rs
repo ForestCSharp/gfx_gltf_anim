@@ -308,6 +308,8 @@ impl GltfModel {
 		GltfModel {
 			meshes 	 : meshes,
 			skeleton : Skeleton {
+				//TODO: Don't try to create this buffer if no bones (len() == 0)
+    			//FIXME: Causes crash if no bones (i.e. unskinned models)
 				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, device, physical_device),
 				bones : bones,
 				gpu_index_to_node_index : gpu_index_to_node_index,

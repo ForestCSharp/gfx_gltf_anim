@@ -18,7 +18,7 @@ use ::mesh::GpuBuffer;
 use ::gfx_helpers;
 use ::glsl_to_spirv;
 
-static mut TEST_FLOAT : f32 = 1.0;
+pub static mut ANIM_SPEED : f32 = 1.0;
 
 pub struct CimguiHal {
 	gfx_data : CimguiGfxData,
@@ -28,6 +28,7 @@ pub struct CimguiHal {
 pub struct CimguiGfxData {
 	desc_pool: <B as Backend>::DescriptorPool,
 	desc_set : <B as Backend>::DescriptorSet,
+	desc_set_layout : <B as Backend>::DescriptorSetLayout,
 	renderpass : <B as Backend>::RenderPass,
 	pipeline: <B as Backend>::GraphicsPipeline,
 	pipeline_layout: <B as Backend>::PipelineLayout,
@@ -36,10 +37,10 @@ pub struct CimguiGfxData {
 }
 
 pub struct CimguiFontData {
-	image: <B as Backend>::Image, //Image
-	memory: <B as Backend>::Memory, //Memory
-	image_view : <B as Backend>::ImageView, //Image View
-	sampler : <B as Backend>::Sampler, //Sampler
+	image: <B as Backend>::Image,
+	memory: <B as Backend>::Memory,
+	image_view : <B as Backend>::ImageView,
+	sampler : <B as Backend>::Sampler,
 }
 
 impl CimguiHal {
@@ -299,7 +300,7 @@ impl CimguiHal {
 
 			igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
 			igText(CString::new("Hello, world!").unwrap().as_ptr());
-			igSliderFloat(CString::new("test float").unwrap().as_ptr(), &mut TEST_FLOAT, 0.0f32, 1.0f32, std::ptr::null(), 1.0f32);
+			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut ANIM_SPEED, 0.0f32, 20.0f32, std::ptr::null(), 2.0f32);
 			igEnd();
 
 			igShowDemoWindow(&mut true);
@@ -339,14 +340,12 @@ impl CimguiHal {
 				return;
 			}
 
-			//TODO: Better way to handle buffer recreation
 			if self.gfx_data.vertex_buffer.is_some() {
 				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device, physical_device);
 			} else {
 			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, device, physical_device));
 			}
 
-			//TODO: Better way to handle buffer recreation
 			if self.gfx_data.index_buffer.is_some() {
 				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device, physical_device);
 			} else {
@@ -360,7 +359,7 @@ impl CimguiHal {
             cmd_buffer.bind_index_buffer(hal::buffer::IndexBufferView {
                 buffer: &self.gfx_data.index_buffer.as_ref().unwrap().buffer,
                 offset: 0,
-                index_type: hal::IndexType::U16, //TODO: check for type of indices
+                index_type: hal::IndexType::U16, //ImGui currently uses U16 indices
             });
 
 			let viewport = hal::pso::Viewport {
@@ -433,18 +432,37 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn shutdown(self) {
+	pub fn shutdown(self, device : &back::Device) {
 		unsafe {
 			igDestroyContext(std::ptr::null_mut());
 		}
 
-		//TODO: Cleanup gfx-hal resources (gfx_data, font_data)
+		match self.gfx_data.vertex_buffer {
+			Some(buffer) => buffer.destroy(device),
+			None => {}
+		}
+		match self.gfx_data.index_buffer {
+			Some(buffer) => buffer.destroy(device),
+			None => {}
+		}
+
+		device.destroy_descriptor_pool(self.gfx_data.desc_pool);
+		device.destroy_descriptor_set_layout(self.gfx_data.desc_set_layout);
+		device.destroy_render_pass(self.gfx_data.renderpass);
+		device.destroy_graphics_pipeline(self.gfx_data.pipeline);
+		device.destroy_pipeline_layout(self.gfx_data.pipeline_layout);
+
+		//Font Data
+		device.destroy_image_view(self.font_data.image_view);
+		device.destroy_sampler(self.font_data.sampler);
+		device.destroy_image(self.font_data.image);
+		device.free_memory(self.font_data.memory);	
 	}
 
 	fn create_gfx_resources(device: &back::Device, color_format : &hal::format::Format, depth_format: &hal::format::Format) -> CimguiGfxData {
 		
 		//Descriptor Set
-		let set_layout = device.create_descriptor_set_layout( 
+		let desc_set_layout = device.create_descriptor_set_layout( 
 			&[
 				//General Uniform (M,V,P, time)
 				hal::pso::DescriptorSetLayoutBinding {
@@ -468,7 +486,7 @@ impl CimguiHal {
 			],
 		).expect("Can't create descriptor pool");
 
-		let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
+		let desc_set = desc_pool.allocate_set(&desc_set_layout).unwrap();
 
 		//Renderpass setup
 		let renderpass = {
@@ -508,7 +526,7 @@ impl CimguiHal {
 			device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass")
 		};
 			
-		let new_pipeline_layout = device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..4)]).expect("failed to create pipeline layout");
+		let new_pipeline_layout = device.create_pipeline_layout(Some(&desc_set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..4)]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
             let vs_module = {
@@ -627,6 +645,7 @@ impl CimguiHal {
 		CimguiGfxData {
 			desc_pool : desc_pool,
 			desc_set : desc_set,
+			desc_set_layout : desc_set_layout,
 			renderpass : renderpass,
 			pipeline : new_pipeline,
 			pipeline_layout : new_pipeline_layout,

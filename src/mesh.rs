@@ -14,7 +14,7 @@ pub struct GpuBuffer {
 
 impl GpuBuffer {
 
-	//TODO: Staging Buffer
+	//TODO: Staging Buffer (if not CPU_VISIBLE)
 	//TODO: memory property argument (CPU_VISIBLE, etc.) 
 	pub fn new<T : Copy>(data : &[T], usage : hal::buffer::Usage, device : &back::Device, physical_device : &back::PhysicalDevice) -> GpuBuffer {
         
