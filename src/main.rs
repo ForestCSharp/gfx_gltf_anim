@@ -27,7 +27,7 @@ extern crate memoffset;
 use std::fs;
 use std::io::{Read};
 
-use hal::{Instance, Device, DescriptorPool, Surface, Swapchain};
+use hal::{Instance, Device, PhysicalDevice, DescriptorPool, Surface, Swapchain, QueueFamily};
 
 mod mesh;
 use mesh::{GpuBuffer, Vertex};
@@ -67,14 +67,18 @@ fn main() {
     //Just pick the first GPU we find for now
     let adapter = adapters.remove(0);
 
-    //Create Device and Queue from our adapter
-    let (mut device, mut queue_group) = adapter
-        .open_with::<_, hal::Graphics>(1, |family| surface.supports_queue_family(family))
-        .unwrap();
+	let graphics_queue_family = adapter.queue_families.iter().find(|&&family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
+	//TODO: try to get a transfer queue that's different than the graphics queue above
+	let transfer_queue_family = adapter.queue_families.iter().find(|&&family| family.supports_transfer() ).expect("Failed to find Transfer Queue");
 
-	//TODO: Dedicated Transfer Queue
+	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1])]).expect("failed to create device and queues");
 
-    let mut command_pool = device.create_command_pool_typed(&queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16)
+	let mut device = gpu.device;
+
+	let mut graphics_queue_group = gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue");
+	//let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
+
+    let mut command_pool = device.create_command_pool_typed(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16)
                             .expect("Can't create command pool");
 
 	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device, &adapter.physical_device);
@@ -434,7 +438,7 @@ fn main() {
     let (pipeline, pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
 
 	//initialize cimgui
-	let mut cimgui_hal = CimguiHal::new( &device, &adapter.physical_device, &mut queue_group, &format, &depth_format);
+	let mut cimgui_hal = CimguiHal::new( &device, &adapter.physical_device, &mut graphics_queue_group, &format, &depth_format);
 
     let mut acquisition_semaphore = device.create_semaphore().unwrap();
     
@@ -713,6 +717,7 @@ fn main() {
 
 			cimgui_hal.new_frame(window_width as f32, window_height as f32, delta_time as f32);
 
+			//TODO: Safe API for cimgui
 			unsafe {
 				use std::ffi::CString;
 
@@ -736,14 +741,14 @@ fn main() {
                 .wait_on(&[(&acquisition_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)])
                 .signal(&[&submission_semaphore])
                 .submit(Some(submit));
-            queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+            graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
         }
 
         //TODO: Remove once submission_semaphore is working properly
         device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
-        if let Err(_) = swap_chain.present(&mut queue_group.queues[0], frame, &[submission_semaphore]) {
+        if let Err(_) = swap_chain.present(&mut graphics_queue_group.queues[0], frame, &[submission_semaphore]) {
             needs_resize = true;
         }
 
@@ -769,6 +774,8 @@ struct CameraUniform {
     model_matrix: [[f32;4];4],
     time: f32,
 }
+
+
 
 fn timestamp() -> f64 {
     let timespec = time::get_time();
