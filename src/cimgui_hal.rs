@@ -1,7 +1,6 @@
-extern crate cimgui;
+pub extern crate cimgui;
 use self::cimgui::*;
 
-use std::ffi::CString;
 use std::fs;
 use std::io::{Read};
 
@@ -17,8 +16,6 @@ extern crate winit;
 use ::mesh::GpuBuffer;
 use ::gfx_helpers;
 use ::glsl_to_spirv;
-
-pub static mut ANIM_SPEED : f32 = 1.0;
 
 pub struct CimguiHal {
 	gfx_data : CimguiGfxData,
@@ -288,27 +285,37 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn render(&mut self, width : f32, height : f32, delta_time : f32, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
+	#[allow(dead_code)]
+	pub fn wants_capture_mouse(&self) -> bool {
+		unsafe {
+			let io = igGetIO();
+			!io.is_null() && (*io).WantCaptureMouse
+		}
+	}
+
+	pub fn wants_capture_keyboard(&self) -> bool {
+		unsafe {
+			let io = igGetIO();
+			!io.is_null() && (*io).WantCaptureKeyboard
+		}
+	}
+
+	pub fn new_frame(&self, width : f32, height : f32, delta_time : f32) {
 		unsafe {
 			let io = igGetIO();
 
 			(*io).DisplaySize = ImVec2{ x: width, y: height};
 			(*io).DeltaTime = delta_time;
 
-			////TODO: Remove Test Gui Code Below
 			igNewFrame();
+		}
+	}
 
-			igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
-			igText(CString::new("Hello, world!").unwrap().as_ptr());
-			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut ANIM_SPEED, 0.0f32, 20.0f32, std::ptr::null(), 2.0f32);
-			igEnd();
-
-			igShowDemoWindow(&mut true);
-
+	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
+		unsafe {
 			igEndFrame();
 
 			igRender();
-			//TODO: Remove Test Gui Code Above
 
 			if igGetDrawData().is_null() {
 				println!("Error: ImDrawData is null");
@@ -340,16 +347,18 @@ impl CimguiHal {
 				return;
 			}
 
+			//TODO: Make below buffers Device Local after staging buffer is implemented
+
 			if self.gfx_data.vertex_buffer.is_some() {
 				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device, physical_device);
 			} else {
-			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, device, physical_device));
+			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device));
 			}
 
 			if self.gfx_data.index_buffer.is_some() {
 				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device, physical_device);
 			} else {
-			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, device, physical_device));
+			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device));
 			}
 
 			cmd_buffer.bind_graphics_pipeline(&self.gfx_data.pipeline);

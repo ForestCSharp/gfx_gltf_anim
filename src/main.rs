@@ -34,6 +34,7 @@ use mesh::{GpuBuffer, Vertex};
 
 mod cimgui_hal;
 use cimgui_hal::*;
+use cimgui_hal::cimgui::*;
 
 mod gfx_helpers;
 
@@ -99,7 +100,11 @@ fn main() {
     };
 
     //Uniform Buffer Setup
-	let mut uniform_gpu_buffer = GpuBuffer::new(&[camera_uniform_struct], hal::buffer::Usage::UNIFORM, &device, &adapter.physical_device);
+	let mut uniform_gpu_buffer = GpuBuffer::new(&[camera_uniform_struct], 
+												hal::buffer::Usage::UNIFORM, 
+												hal::memory::Properties::CPU_VISIBLE, 
+												&device, 
+												&adapter.physical_device);
 
     //Descriptor Set
     let set_layout = device.create_descriptor_set_layout( 
@@ -440,7 +445,6 @@ fn main() {
 
     let first_timestamp = timestamp();
     let mut last_time = 0.0f64;
-    let mut current_anim_time = 0.0f64;
 
     //TODO: Key Hashmap
     let mut w_state = false;
@@ -456,6 +460,7 @@ fn main() {
 
 	let mut mouse_pos = [0.0, 0.0];
 	let mut mouse_button_states =  [ false, false, false, false, false];
+	let mut anim_speed : f32 = 1.0;
 
     while running {
         num_frames += 1;
@@ -508,7 +513,6 @@ fn main() {
 						}
                     },
                     winit::WindowEvent::MouseInput { state, button, ..} => {
-						//TODO: Replace with match
 						let pressed = state == winit::ElementState::Pressed;
 						match button {
 							winit::MouseButton::Left   => mouse_button_states[0] = pressed,
@@ -547,8 +551,6 @@ fn main() {
 		//FIXME: Mouse Scroll is bad on touch pads
 		cimgui_hal.update_mouse_state(mouse_button_states, mouse_pos, scroll_delta);
 
-		//TODO: Don't Run Other Input Logic if cimgui_hal wants focus / etc.
-
         let mut forward = 0.0;
         let mut right = 0.0;
         let mut up = 0.0;
@@ -576,7 +578,6 @@ fn main() {
             continue;
         }
         
-        //TODO: Skip rendering when actively dragging to resizing
         if needs_resize {
             device.wait_idle().unwrap();
 
@@ -642,7 +643,9 @@ fn main() {
         let up_vec = cam_up * up * move_speed * delta_time as f32;
         let move_vec = forward_vec + right_vec + up_vec;
 
-        cam_pos += move_vec;
+		if !cimgui_hal.wants_capture_keyboard() {
+        	cam_pos += move_vec;
+		}
 
         camera_uniform_struct.view_matrix = glm::look_at(
             &cam_pos,
@@ -657,68 +660,11 @@ fn main() {
 
 		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device, &adapter.physical_device);
 
-        current_anim_time += delta_time * unsafe { cimgui_hal::ANIM_SPEED as f64 };
-
-        //TODO: remove hardcoded 1st index
-        if current_anim_time > gltf_model.skeleton.animations[0].duration as f64 {
-            current_anim_time = 0.0;
-        }
-
-        //TODO: remove hardcoded 1st index
         //Animate Bones
-        for (node_index, channel) in &mut gltf_model.skeleton.animations[0].channels {
+        gltf_model.animate(delta_time *  anim_speed as f64);
 
-            //Get Current Left & Right Keyframes
-            let mut left_key_index = channel.current_left_keyframe;
-            let mut right_key_index = left_key_index + 1;
-
-            //Get those keyframe times
-            let mut left_key_time = channel.keyframes.get_time(left_key_index);
-            let mut right_key_time = channel.keyframes.get_time(right_key_index);
-
-            //If anim time isn't within keyframe times, we need to increment
-            while current_anim_time as f32 >= right_key_time || (current_anim_time as f32) < left_key_time {
-                left_key_index = (left_key_index + 1) % channel.keyframes.len();
-                right_key_index = (right_key_index + 1) % channel.keyframes.len();
-                
-                left_key_time = channel.keyframes.get_time(left_key_index);
-                right_key_time = channel.keyframes.get_time(right_key_index);
-            }
-
-            channel.current_left_keyframe = left_key_index;
-
-            //Lerp Value of x from a to b = (x - a) / (b - a)
-            let mut lerp_value = (current_anim_time as f32 - left_key_time) / (right_key_time - left_key_time );
-
-            if lerp_value < 0.0 { lerp_value = 0.0; }
-
-            match &mut channel.keyframes {
-                ChannelType::TranslationChannel(translations) => {
-                    let left_value : glm::Vec3 = translations[left_key_index].1.into();
-                    let right_value : glm::Vec3 = translations[right_key_index].1.into();
-                    gltf_model.nodes[*node_index].translation = glm::lerp(&left_value, &right_value, lerp_value).into();
-                },
-                ChannelType::RotationChannel(rotations) => {
-                    let left_value  = glm::Quat{ coords: rotations[left_key_index].1.into() };
-                    let right_value = glm::Quat{ coords: rotations[right_key_index].1.into() };
-                    gltf_model.nodes[*node_index].rotation = glm::quat_slerp(&left_value, &right_value, lerp_value).as_vector().clone().into();
-                 },
-                ChannelType::ScaleChannel(scales) => {
-                    let left_value : glm::Vec3 = scales[left_key_index].1.into();
-                    let right_value : glm::Vec3 = scales[right_key_index].1.into();
-                    gltf_model.nodes[*node_index].scale = glm::lerp(&left_value, &right_value, lerp_value).into();
-                },
-            }
-        }
-
-        //Now compute each matrix and upload to GPU
-        for (bone_index, mut bone) in gltf_model.skeleton.bones.iter_mut().enumerate() {
-            if let Some(node_index) = gltf_model.skeleton.gpu_index_to_node_index.get(&bone_index) {
-                bone.joint_matrix = (gltf_model.skeleton.inverse_root_transform * compute_global_transform(*node_index, &gltf_model.nodes) * gltf_model.skeleton.inverse_bind_matrices[bone_index]).into();
-            }
-        }
-
-		gltf_model.skeleton.gpu_buffer.reupload(&gltf_model.skeleton.bones, &device, &adapter.physical_device);
+		//Upload Bones to GPU
+		gltf_model.upload_bones(&device, &adapter.physical_device);
         
         device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();
@@ -728,7 +674,6 @@ fn main() {
                 Ok(i) => i,
                 Err(_) => {
                     needs_resize = true;
-                    println!("FAILED TO ACQUIRE IMAGE");
                     continue;
                 }
             }
@@ -766,7 +711,20 @@ fn main() {
 				gltf_model.record_draw_commands(&mut encoder, 100);
             }
 
-			cimgui_hal.render(window_width as f32, window_height as f32, delta_time as f32, &mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
+			cimgui_hal.new_frame(window_width as f32, window_height as f32, delta_time as f32);
+
+			unsafe {
+				use std::ffi::CString;
+
+				igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
+				igText(CString::new("Hello, world!").unwrap().as_ptr());
+				igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 20.0f32, std::ptr::null(), 2.0f32);
+				igEnd();
+
+				igShowDemoWindow(&mut true);
+			}
+
+			cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
 
             cmd_buffer.finish()
         };

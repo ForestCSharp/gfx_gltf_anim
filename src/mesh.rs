@@ -9,42 +9,55 @@ pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
     pub memory : <B as Backend>::Memory,
 	pub usage  : hal::buffer::Usage,
+	pub memory_properties : hal::memory::Properties,
 	pub count  : u32,
 }
 
 impl GpuBuffer {
 
-	//TODO: Staging Buffer (if not CPU_VISIBLE)
-	//TODO: memory property argument (CPU_VISIBLE, etc.) 
-	pub fn new<T : Copy>(data : &[T], usage : hal::buffer::Usage, device : &back::Device, physical_device : &back::PhysicalDevice) -> GpuBuffer {
+	pub fn new<T : Copy>(	data : &[T], 
+						 	usage : hal::buffer::Usage, 
+							memory_properties: hal::memory::Properties, 
+							device : &back::Device, 
+							physical_device : &back::PhysicalDevice) 
+	-> GpuBuffer {
         
+		let use_staging_buffer = (memory_properties & hal::memory::Properties::CPU_VISIBLE) != hal::memory::Properties::CPU_VISIBLE;
+		let upload_usage = if use_staging_buffer { hal::buffer::Usage::TRANSFER_SRC } else { usage };
+		let upload_memory_properties = if use_staging_buffer { hal::memory::Properties::CPU_VISIBLE } else { memory_properties };
+
 		let buffer_stride = std::mem::size_of::<T>() as u64;
         let buffer_len = data.len() as u64 * buffer_stride;
 		
-		let buffer_unbound = device.create_buffer(buffer_len, usage).unwrap();
-        let buffer_req = device.get_buffer_requirements(&buffer_unbound);
+		let upload_buffer_unbound = device.create_buffer(buffer_len, upload_usage).unwrap();
+        let upload_buffer_req = device.get_buffer_requirements(&upload_buffer_unbound);
 
-		let upload_type = gfx_helpers::get_memory_type(physical_device, &buffer_req, hal::memory::Properties::CPU_VISIBLE);
+		let upload_type = gfx_helpers::get_memory_type(physical_device, &upload_buffer_req, upload_memory_properties);
 
-        let buffer_memory = device.allocate_memory(upload_type, buffer_req.size).unwrap();
-        let buffer = device.bind_buffer_memory(&buffer_memory, 0, buffer_unbound).unwrap();
+        let upload_buffer_memory = device.allocate_memory(upload_type, upload_buffer_req.size).unwrap();
+        let upload_buffer = device.bind_buffer_memory(&upload_buffer_memory, 0, upload_buffer_unbound).unwrap();
 
         {
-            let mut mapping_writer = device.acquire_mapping_writer::<T>(&buffer_memory, 0..buffer_req.size).unwrap();
+            let mut mapping_writer = device.acquire_mapping_writer::<T>(&upload_buffer_memory, 0..upload_buffer_req.size).unwrap();
             mapping_writer[0..data.len()].copy_from_slice(&data);
             device.release_mapping_writer(mapping_writer).unwrap();
         }
 
+		if use_staging_buffer {
+			//TODO: copy upload_buffer to final buffer using Device::copy_buffer
+		}
+
 		GpuBuffer {
-			buffer : buffer,
-			memory : buffer_memory,
-			usage  : usage,
-			count  : data.len() as u32,
+			buffer 			  : upload_buffer,
+			memory 			  : upload_buffer_memory,
+			usage  			  : usage,
+			memory_properties : memory_properties, 
+			count 			  : data.len() as u32,
 		}
 	}
 
 	fn recreate<T : Copy>(&mut self, data : &[T], device : &back::Device, physical_device : &back::PhysicalDevice) {
-		let new_buffer = GpuBuffer::new(data, self.usage, device, physical_device);
+		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device, physical_device);
 		self.buffer = new_buffer.buffer;
 		self.memory = new_buffer.memory;
 		self.count  = data.len() as u32;
@@ -84,8 +97,9 @@ pub struct Mesh {
 impl Mesh {
     pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device : &back::Device, physical_device : &back::PhysicalDevice ) -> Mesh {
         Mesh {
-            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, device, physical_device),
-            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, device, physical_device)),
+			//TODO: change these to Device Local when staging buffer is implemented
+            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device),
+            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device)),
         }
     }
 

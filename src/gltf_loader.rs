@@ -12,10 +12,10 @@ use mesh::{Vertex,Mesh, GpuBuffer};
 pub struct GltfModel {
 	pub meshes 	 : Vec<Mesh>,
 	pub skeleton : Skeleton, //TODO: Make optional, allow multiple, associate with individual meshes
+	pub current_anim_time : f64, //TODO: move this into skeleton
 	pub nodes    : Vec<Node>,
 }
 
-//TODO: Function to animate and upload to GPU
 //TODO: Bind correct uniform buffer for a given animated mesh
 impl GltfModel {
 	pub fn new( file_path : &str, device : &back::Device, physical_device : &back::PhysicalDevice) -> GltfModel {
@@ -310,18 +310,89 @@ impl GltfModel {
 			skeleton : Skeleton {
 				//TODO: Don't try to create this buffer if no bones (len() == 0)
     			//FIXME: Causes crash if no bones (i.e. unskinned models)
-				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, device, physical_device),
+				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, hal::memory::Properties::CPU_VISIBLE, device, physical_device),
 				bones : bones,
 				gpu_index_to_node_index : gpu_index_to_node_index,
 				inverse_bind_matrices : inverse_bind_matrices,
 				inverse_root_transform : inverse_root_transform,
 				animations : animations,
 			},
+			current_anim_time : 0.0,
 			nodes 	 : nodes,
 		}
 	}
 
+	//TODO: should probably be on ea. skeleton so multiple animations can run on one gltf model (targeting different meshes)
+	pub fn animate(&mut self, delta_time : f64) {
+
+		self.current_anim_time += delta_time;
+
+		//TODO: Remove hard-coded 0 index
+		if self.current_anim_time > self.skeleton.animations[0].duration as f64 {
+            self.current_anim_time = 0.0;
+        }
+
+		//TODO: Remove hard-coded 0 index
+		for (node_index, channel) in &mut self.skeleton.animations[0].channels {
+
+            //Get Current Left & Right Keyframes
+            let mut left_key_index = channel.current_left_keyframe;
+            let mut right_key_index = left_key_index + 1;
+
+            //Get those keyframe times
+            let mut left_key_time = channel.keyframes.get_time(left_key_index);
+            let mut right_key_time = channel.keyframes.get_time(right_key_index);
+
+            //If anim time isn't within keyframe times, we need to increment
+            while self.current_anim_time as f32 >= right_key_time || (self.current_anim_time as f32) < left_key_time {
+                left_key_index = (left_key_index + 1) % channel.keyframes.len();
+                right_key_index = (right_key_index + 1) % channel.keyframes.len();
+                
+                left_key_time = channel.keyframes.get_time(left_key_index);
+                right_key_time = channel.keyframes.get_time(right_key_index);
+            }
+
+            channel.current_left_keyframe = left_key_index;
+
+            //Lerp Value of x from a to b = (x - a) / (b - a)
+            let mut lerp_value = (self.current_anim_time as f32 - left_key_time) / (right_key_time - left_key_time );
+
+            if lerp_value < 0.0 { lerp_value = 0.0; }
+
+            match &mut channel.keyframes {
+                ChannelType::TranslationChannel(translations) => {
+                    let left_value : glm::Vec3 = translations[left_key_index].1.into();
+                    let right_value : glm::Vec3 = translations[right_key_index].1.into();
+                    self.nodes[*node_index].translation = glm::lerp(&left_value, &right_value, lerp_value).into();
+                },
+                ChannelType::RotationChannel(rotations) => {
+                    let left_value  = glm::Quat{ coords: rotations[left_key_index].1.into() };
+                    let right_value = glm::Quat{ coords: rotations[right_key_index].1.into() };
+                    self.nodes[*node_index].rotation = glm::quat_slerp(&left_value, &right_value, lerp_value).as_vector().clone().into();
+                 },
+                ChannelType::ScaleChannel(scales) => {
+                    let left_value : glm::Vec3 = scales[left_key_index].1.into();
+                    let right_value : glm::Vec3 = scales[right_key_index].1.into();
+                    self.nodes[*node_index].scale = glm::lerp(&left_value, &right_value, lerp_value).into();
+                },
+            }
+        }
+
+        //Now compute each matrix and upload to GPU
+        for (bone_index, mut bone) in self.skeleton.bones.iter_mut().enumerate() {
+            if let Some(node_index) = self.skeleton.gpu_index_to_node_index.get(&bone_index) {
+                bone.joint_matrix = (self.skeleton.inverse_root_transform * compute_global_transform(*node_index, &self.nodes) * self.skeleton.inverse_bind_matrices[bone_index]).into();
+            }
+        }
+	}
+
+	pub fn upload_bones(&mut self, device: &back::Device, physical_device : &back::PhysicalDevice) {
+		self.skeleton.gpu_buffer.reupload(&self.skeleton.bones, device, physical_device);
+	}
+
 	pub fn record_draw_commands<Level : hal::command::Level>( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, Level>, instance_count : u32) {
+
+
 		for mesh in &self.meshes {
 			mesh.record_draw_commands(encoder, instance_count);
 		}
