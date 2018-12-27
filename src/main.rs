@@ -37,6 +37,7 @@ use cimgui_hal::*;
 use cimgui_hal::cimgui::*;
 
 mod gfx_helpers;
+use gfx_helpers::DeviceState;
 
 mod gltf_loader;
 use gltf_loader::*;
@@ -44,6 +45,9 @@ use gltf_loader::*;
 
 #[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
 fn main() {
+
+//TODO: Finer-grained unsafe wraps
+unsafe {
 
     println!("Current Target: {}", env!("TARGET"));
 
@@ -67,21 +71,23 @@ fn main() {
     //Just pick the first GPU we find for now
     let adapter = adapters.remove(0);
 
-	let graphics_queue_family = adapter.queue_families.iter().find(|&&family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
-	//TODO: try to get a transfer queue that's different than the graphics queue above
-	let transfer_queue_family = adapter.queue_families.iter().find(|&&family| family.supports_transfer() ).expect("Failed to find Transfer Queue");
+	let graphics_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
+	//TODO: try to get a transfer queue that's different than the graphics queue above (or don't?)
+	let _transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() ).expect("Failed to find Transfer Queue");
 
 	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1])]).expect("failed to create device and queues");
 
-	let mut device = gpu.device;
+	let mut device_state = DeviceState {
+		device : gpu.device,
+		physical_device : adapter.physical_device,
+		graphics_queue_group : gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue"),
+		//transfer_queue_group : gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue"),
+	};
 
-	let mut graphics_queue_group = gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue");
-	//let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
-
-    let mut command_pool = device.create_command_pool_typed(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty(), 16)
+    let mut command_pool = device_state.device.create_command_pool_typed(&device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
 
-	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device, &adapter.physical_device);
+	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state);
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -107,11 +113,10 @@ fn main() {
 	let mut uniform_gpu_buffer = GpuBuffer::new(&[camera_uniform_struct], 
 												hal::buffer::Usage::UNIFORM, 
 												hal::memory::Properties::CPU_VISIBLE, 
-												&device, 
-												&adapter.physical_device);
+												&device_state);
 
     //Descriptor Set
-    let set_layout = device.create_descriptor_set_layout( 
+    let set_layout = device_state.device.create_descriptor_set_layout( 
         &[
             //General Uniform (M,V,P, time)
             hal::pso::DescriptorSetLayoutBinding {
@@ -133,7 +138,7 @@ fn main() {
         &[],
     ).expect("Can't create descriptor set layout");
     
-    let mut desc_pool = device.create_descriptor_pool(
+    let mut desc_pool = device_state.device.create_descriptor_pool(
         1,
         &[
             hal::pso::DescriptorRangeDesc {
@@ -146,7 +151,7 @@ fn main() {
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
     //Descriptor write for our two uniform buffers
-    device.write_descriptor_sets( vec![
+    device_state.device.write_descriptor_sets( vec![
         hal::pso::DescriptorSetWrite {
             set: &desc_set,
             binding: 0,
@@ -161,8 +166,8 @@ fn main() {
         },
     ]);
 
-    let create_swapchain = |physical_device: &back::PhysicalDevice, device: &back::Device, surface: &mut <back::Backend as hal::Backend>::Surface| {
-        let (capabilities, formats, _present_modes) = surface.compatibility(physical_device);
+    let create_swapchain = |device_state : &DeviceState, surface: &mut <back::Backend as hal::Backend>::Surface| {
+        let (capabilities, formats, _present_modes, _composite_alphas) = surface.compatibility(&device_state.physical_device);
         let new_format = formats.map_or(hal::format::Format::Rgba8Srgb, |formats| {
             formats
                 .iter()
@@ -173,18 +178,18 @@ fn main() {
 
         let swap_config = hal::SwapchainConfig::from_caps(&capabilities, new_format, DIMS);
         let new_extent = swap_config.extent.to_extent();
-        let (new_swapchain, new_backbuffer) = device.create_swapchain(surface, swap_config, None).expect("Can't create swapchain");
+        let (new_swapchain, new_backbuffer) = device_state.device.create_swapchain(surface, swap_config, None).expect("Can't create swapchain");
 
         (new_swapchain, new_backbuffer, new_format, new_extent)
     };
 
     //Swapchain
-    let (mut swap_chain, backbuffer, mut format, mut extent) = create_swapchain(&adapter.physical_device, &mut device, &mut surface );
+    let (mut swap_chain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface );
 
     //Depth Buffer Setup
-    let create_depth_buffer = |device: &back::Device, extent: &hal::image::Extent| {
+    let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent| {
         let depth_format = hal::format::Format::D32Float;
-        let depth_image = device.create_image(
+        let mut depth_image = device_state.device.create_image(
             hal::image::Kind::D2(extent.width as _, extent.height as _, 1, 1),
             1,
             depth_format,
@@ -193,14 +198,14 @@ fn main() {
             hal::image::ViewCapabilities::empty()
         ).unwrap();
 
-        let depth_mem_reqs = device.get_image_requirements(&depth_image);
+        let depth_mem_reqs = device_state.device.get_image_requirements(&depth_image);
 
-		let mem_type = gfx_helpers::get_memory_type(&adapter.physical_device, &depth_mem_reqs, hal::memory::Properties::DEVICE_LOCAL);
+		let mem_type = gfx_helpers::get_memory_type(&device_state.physical_device, &depth_mem_reqs, hal::memory::Properties::DEVICE_LOCAL);
 
-        let depth_memory = device.allocate_memory(mem_type, depth_mem_reqs.size).unwrap();
-        let depth_image = device.bind_image_memory(&depth_memory, 0, depth_image).unwrap();
+        let depth_memory = device_state.device.allocate_memory(mem_type, depth_mem_reqs.size).unwrap();
+        device_state.device.bind_image_memory(&depth_memory, 0, &mut depth_image).unwrap();
 
-        let depth_view = device.create_image_view(
+        let depth_view = device_state.device.create_image_view(
             &depth_image,
             hal::image::ViewKind::D2,
             depth_format,
@@ -215,10 +220,10 @@ fn main() {
         (depth_view, depth_image, depth_memory, depth_format)
     };
 
-    let (mut depth_view, mut _depth_image, mut _depth_memory, mut depth_format) = create_depth_buffer(&device, &extent);
+    let (mut depth_view, mut _depth_image, mut _depth_memory, mut depth_format) = create_depth_buffer(&device_state, &extent);
 
     //Renderpass
-    let create_renderpass = |device: &back::Device, format : &hal::format::Format, depth_format: &hal::format::Format| {
+    let create_renderpass = |device_state: &DeviceState, format : &hal::format::Format, depth_format: &hal::format::Format| {
         let attachment = hal::pass::Attachment {
             format: Some(*format),
             samples: 1,
@@ -253,18 +258,18 @@ fn main() {
                 ..(hal::image::Access::COLOR_ATTACHMENT_READ | hal::image::Access::COLOR_ATTACHMENT_WRITE),
         };
 
-        device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass")
+        device_state.device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass")
     };
 
-    let renderpass = create_renderpass(&device, &format, &depth_format);
+    let renderpass = create_renderpass(&device_state, &format, &depth_format);
 
-    let create_framebuffers = |device: &back::Device, backbuffer: hal::Backbuffer<back::Backend>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<back::Backend as hal::Backend>::ImageView, renderpass: &<back::Backend as hal::Backend>::RenderPass| {
+    let create_framebuffers = |device_state: &DeviceState, backbuffer: hal::Backbuffer<back::Backend>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<back::Backend as hal::Backend>::ImageView, renderpass: &<back::Backend as hal::Backend>::RenderPass| {
         match backbuffer {
             hal::Backbuffer::Images(images) => {
                 let pairs = images
                     .into_iter()
                     .map(|image| {
-                        let rtv = device.create_image_view(
+                        let rtv = device_state.device.create_image_view(
                             &image, 
                             hal::image::ViewKind::D2, 
                             *format, 
@@ -282,7 +287,7 @@ fn main() {
                 let fbos = pairs
                     .iter()
                     .map(|&(_, ref rtv)| {
-                        device
+                        device_state.device
                             .create_framebuffer(&renderpass, vec![rtv, &depth_view], *extent)
                             .unwrap()
                     })
@@ -293,10 +298,10 @@ fn main() {
         }
     };
 
-    let (mut frame_images, mut framebuffers) = create_framebuffers(&device, backbuffer, &format, &extent, &depth_view, &renderpass);
+    let (mut frame_images, mut framebuffers) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
-    let create_pipeline = |device: &back::Device, renderpass: &<back::Backend as hal::Backend>::RenderPass, set_layout: &<back::Backend as hal::Backend>::DescriptorSetLayout| {
-        let new_pipeline_layout = device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]).expect("failed to create pipeline layout");
+    let create_pipeline = |device_state: &DeviceState, renderpass: &<back::Backend as hal::Backend>::RenderPass, set_layout: &<back::Backend as hal::Backend>::DescriptorSetLayout| {
+        let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
             let vs_module = {
@@ -306,7 +311,7 @@ fn main() {
                     .bytes()
                     .map(|b| b.unwrap())
                     .collect();
-                device.create_shader_module(&spirv).unwrap()
+                device_state.device.create_shader_module(&spirv).unwrap()
             };
             let fs_module = {
                 let glsl = fs::read_to_string("data/shaders/quad.frag").unwrap();
@@ -315,7 +320,7 @@ fn main() {
                     .bytes()
                     .map(|b| b.unwrap())
                     .collect();
-                device.create_shader_module(&spirv).unwrap()
+                device_state.device.create_shader_module(&spirv).unwrap()
             };
 
             let pipeline = {
@@ -423,11 +428,11 @@ fn main() {
                 pipeline_desc.depth_stencil.depth_bounds = false;
                 pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
 
-                device.create_graphics_pipeline(&pipeline_desc, None)
+                device_state.device.create_graphics_pipeline(&pipeline_desc, None)
             };
 
-            device.destroy_shader_module(vs_module);
-            device.destroy_shader_module(fs_module);
+            device_state.device.destroy_shader_module(vs_module);
+            device_state.device.destroy_shader_module(fs_module);
 
             pipeline.unwrap()
         };
@@ -435,14 +440,14 @@ fn main() {
         (new_pipeline, new_pipeline_layout)
     };
 
-    let (pipeline, pipeline_layout) = create_pipeline(&device, &renderpass, &set_layout);
+    let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout);
 
 	//initialize cimgui
-	let mut cimgui_hal = CimguiHal::new( &device, &adapter.physical_device, &mut graphics_queue_group, &format, &depth_format);
+	let mut cimgui_hal = CimguiHal::new( &mut device_state, &format, &depth_format);
 
-    let mut acquisition_semaphore = device.create_semaphore().unwrap();
+    let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
     
-    let mut frame_fence = device.create_fence(false).unwrap();
+    let mut frame_fence = device_state.device.create_fence(false).unwrap();
     let mut running = true;
     let mut needs_resize = true;
     let (mut window_width, mut window_height) = (0u32, 0u32);
@@ -583,33 +588,33 @@ fn main() {
         }
         
         if needs_resize {
-            device.wait_idle().unwrap();
+            device_state.device.wait_idle().unwrap();
 
             //Destroy old resources
             for framebuffer in framebuffers {
-                device.destroy_framebuffer(framebuffer);
+                device_state.device.destroy_framebuffer(framebuffer);
             }
 
             for (_, rtv) in frame_images {
-                device.destroy_image_view(rtv);
+                device_state.device.destroy_image_view(rtv);
             }
 
-            device.destroy_swapchain(swap_chain);
+            device_state.device.destroy_swapchain(swap_chain);
 
             //Build new resources         
-            let (new_swapchain, new_backbuffer, new_format, new_extent) = create_swapchain(&adapter.physical_device, &mut device, &mut surface );
+            let (new_swapchain, new_backbuffer, new_format, new_extent) = create_swapchain(&device_state, &mut surface );
 
             swap_chain = new_swapchain;
             format = new_format;
             extent = new_extent;
 
-            let (new_depth_view, new_depth_image, new_depth_memory, new_depth_format) = create_depth_buffer(&device, &extent);
+            let (new_depth_view, new_depth_image, new_depth_memory, new_depth_format) = create_depth_buffer(&device_state, &extent);
             depth_view = new_depth_view;
             _depth_image = new_depth_image;
             _depth_memory = new_depth_memory;
             depth_format = new_depth_format;
 
-            let (new_frame_images, new_framebuffers) = create_framebuffers(&device, new_backbuffer, &format, &extent, &depth_view, &renderpass);
+            let (new_frame_images, new_framebuffers) = create_framebuffers(&device_state, new_backbuffer, &format, &extent, &depth_view, &renderpass);
             frame_images = new_frame_images;
             framebuffers = new_framebuffers;
 
@@ -662,15 +667,15 @@ fn main() {
 
         camera_uniform_struct.time = time as f32;
 
-		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device, &adapter.physical_device);
+		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state);
 
         //Animate Bones
         gltf_model.animate(delta_time *  anim_speed as f64);
 
 		//Upload Bones to GPU
-		gltf_model.upload_bones(&device, &adapter.physical_device);
+		gltf_model.upload_bones(&device_state);
         
-        device.reset_fence(&frame_fence).unwrap();
+        device_state.device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();
 
         let frame: hal::SwapImageIndex = {
@@ -683,72 +688,73 @@ fn main() {
             }
         };
 
-        let submit = {
-            let mut cmd_buffer = command_pool.acquire_command_buffer(false);
 
-            let viewport = hal::pso::Viewport {
-                rect: hal::pso::Rect {
-                    x: 0,
-                    y: 0,
-                    w: extent.width as _,
-                    h: extent.height as _,
-                },
-                depth: 0.0..1.0,
-            };
+		let mut cmd_buffer = command_pool.acquire_command_buffer();
 
-            cmd_buffer.set_viewports(0, &[viewport.clone()]);
-            cmd_buffer.set_scissors(0, &[viewport.rect]);
-            cmd_buffer.bind_graphics_pipeline(&pipeline);
-            cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]); //TODO
+		let viewport = hal::pso::Viewport {
+			rect: hal::pso::Rect {
+				x: 0,
+				y: 0,
+				w: extent.width as _,
+				h: extent.height as _,
+			},
+			depth: 0.0..1.0,
+		};
 
-            {
-                let mut encoder = cmd_buffer.begin_render_pass_inline(
-                    &renderpass,
-                    &framebuffers[frame as usize],
-                    viewport.rect,
-                    &[
-                        hal::command::ClearValue::Color(hal::command::ClearColor::Float([0.2, 0.2, 0.2, 0.0,])),
-                        hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(1.0, 0))
-                    ],
-                );
+		cmd_buffer.set_viewports(0, &[viewport.clone()]);
+		cmd_buffer.set_scissors(0, &[viewport.rect]);
+		cmd_buffer.bind_graphics_pipeline(&pipeline);
+		cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]); //TODO
 
-				gltf_model.record_draw_commands(&mut encoder, 100);
-            }
+		{
+			let mut encoder = cmd_buffer.begin_render_pass_inline(
+				&renderpass,
+				&framebuffers[frame as usize],
+				viewport.rect,
+				&[
+					hal::command::ClearValue::Color(hal::command::ClearColor::Float([0.2, 0.2, 0.2, 0.0,])),
+					hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(1.0, 0))
+				],
+			);
 
-			cimgui_hal.new_frame(window_width as f32, window_height as f32, delta_time as f32);
+			gltf_model.record_draw_commands(&mut encoder, 100);
+		}
 
-			//TODO: Safe API for cimgui
-			unsafe {
-				use std::ffi::CString;
+		cimgui_hal.new_frame(window_width as f32, window_height as f32, delta_time as f32);
 
-				igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
-				igText(CString::new("Hello, world!").unwrap().as_ptr());
-				igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 20.0f32, std::ptr::null(), 2.0f32);
-				igEnd();
+		//TODO: Safe API for cimgui
+		#[allow(unused_unsafe)]
+		unsafe {
+			use std::ffi::CString;
 
-				igShowDemoWindow(&mut true);
-			}
+			igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
+			igText(CString::new("Hello, world!").unwrap().as_ptr());
+			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 20.0f32, std::ptr::null(), 2.0f32);
+			igEnd();
 
-			cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device, &adapter.physical_device);
+			igShowDemoWindow(&mut true);
+		}
 
-            cmd_buffer.finish()
-        };
+		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state);
 
-        let submission_semaphore = device.create_semaphore().unwrap();
+		cmd_buffer.finish();
+
+        let submission_semaphore = device_state.device.create_semaphore().unwrap();
 
         {
-            let submission = hal::queue::Submission::new()
-                .wait_on(&[(&acquisition_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)])
-                .signal(&[&submission_semaphore])
-                .submit(Some(submit));
-            graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+			let submission = hal::queue::Submission {
+                command_buffers: Some(&cmd_buffer),
+                wait_semaphores: Some((&acquisition_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)),
+                signal_semaphores: Some(&submission_semaphore),
+            };
+            device_state.graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
         }
 
         //TODO: Remove once submission_semaphore is working properly
-        device.wait_for_fence(&frame_fence, !0).unwrap();
+        device_state.device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
-        if let Err(_) = swap_chain.present(&mut graphics_queue_group.queues[0], frame, &[submission_semaphore]) {
+        if let Err(_) = swap_chain.present(&mut device_state.graphics_queue_group.queues[0], frame, &[submission_semaphore]) {
             needs_resize = true;
         }
 
@@ -758,10 +764,10 @@ fn main() {
     let total_time = timestamp() - first_timestamp;
     println!("Avg Frame Time: {}", total_time / num_frames as f64);
 
-    gltf_model.destroy(&device);
+    gltf_model.destroy(&device_state);
 
-	cimgui_hal.shutdown(&device);
-
+	cimgui_hal.shutdown(&device_state);
+	}
 }
 
 #[cfg_attr(rustfmt, rustfmt_skip)]

@@ -1,5 +1,4 @@
 use ::hal;
-use ::back;
 use ::B;
 
 extern crate nalgebra_glm as glm;
@@ -8,6 +7,7 @@ use std::collections::HashMap;
 extern crate gltf;
 
 use mesh::{Vertex,Mesh, GpuBuffer};
+use ::gfx_helpers;
 
 pub struct GltfModel {
 	pub meshes 	 : Vec<Mesh>,
@@ -18,7 +18,7 @@ pub struct GltfModel {
 
 //TODO: Bind correct uniform buffer for a given animated mesh
 impl GltfModel {
-	pub fn new( file_path : &str, device : &back::Device, physical_device : &back::PhysicalDevice) -> GltfModel {
+	pub fn new( file_path : &str, device_state : &gfx_helpers::DeviceState) -> GltfModel {
 
 		//Load GLTF Model
 		let (gltf_model, buffers, _) = gltf::import(file_path).unwrap();
@@ -249,7 +249,7 @@ impl GltfModel {
 						});
 					} 
 
-					meshes.push(Mesh::new(vertices_vec, indices_vec, device, physical_device));
+					meshes.push(Mesh::new(vertices_vec, indices_vec, device_state));
 				},
 				None => {},
 			}
@@ -310,7 +310,7 @@ impl GltfModel {
 			skeleton : Skeleton {
 				//TODO: Don't try to create this buffer if no bones (len() == 0)
     			//FIXME: Causes crash if no bones (i.e. unskinned models)
-				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, hal::memory::Properties::CPU_VISIBLE, device, physical_device),
+				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, hal::memory::Properties::CPU_VISIBLE, device_state),
 				bones : bones,
 				gpu_index_to_node_index : gpu_index_to_node_index,
 				inverse_bind_matrices : inverse_bind_matrices,
@@ -386,11 +386,11 @@ impl GltfModel {
         }
 	}
 
-	pub fn upload_bones(&mut self, device: &back::Device, physical_device : &back::PhysicalDevice) {
-		self.skeleton.gpu_buffer.reupload(&self.skeleton.bones, device, physical_device);
+	pub fn upload_bones(&mut self, device_state : &gfx_helpers::DeviceState) {
+		self.skeleton.gpu_buffer.reupload(&self.skeleton.bones, device_state);
 	}
 
-	pub fn record_draw_commands<Level : hal::command::Level>( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, Level>, instance_count : u32) {
+	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B>, instance_count : u32) {
 
 
 		for mesh in &self.meshes {
@@ -398,9 +398,9 @@ impl GltfModel {
 		}
 	}
 
-	pub fn destroy( self, device : &back::Device ) {
+	pub fn destroy( self, device_state : &gfx_helpers::DeviceState ) {
 		for mesh in self.meshes {
-			mesh.destroy(device);
+			mesh.destroy(device_state);
 		}
 	}
 }

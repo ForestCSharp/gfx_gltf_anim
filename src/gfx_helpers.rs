@@ -1,9 +1,10 @@
 use ::back;
 use ::hal;
+use ::B;
 use hal::PhysicalDevice;
 
 //TODO: handle multiple desired memory properties
-pub fn get_memory_type( physical_device: &back::PhysicalDevice, 
+pub fn get_memory_type( physical_device: &back::PhysicalDevice,
 						memory_requirements : &hal::memory::Requirements, 
 						desired_memory_properties : hal::memory::Properties) 
 -> hal::MemoryTypeId {
@@ -16,4 +17,11 @@ pub fn get_memory_type( physical_device: &back::PhysicalDevice,
 		})
 		.unwrap()
 		.into()
+}
+
+pub struct DeviceState {
+	pub device : back::Device,
+	pub physical_device : back::PhysicalDevice,
+	pub graphics_queue_group : hal::QueueGroup<B, hal::Graphics>,
+	//TODO: dedicated transfer queue?
 }

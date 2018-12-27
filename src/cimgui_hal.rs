@@ -41,7 +41,9 @@ pub struct CimguiFontData {
 }
 
 impl CimguiHal {
-	pub fn new(device: &back::Device, physical_device : &back::PhysicalDevice, queue_group : &mut hal::QueueGroup<B, hal::Graphics>, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
+	pub fn new(device_state: &mut gfx_helpers::DeviceState, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
+
+		let device = &device_state.device;
 
 		//Create gfx resources
 		let gfx_data = CimguiHal::create_gfx_resources(device, color_format, depth_format);
@@ -61,21 +63,19 @@ impl CimguiHal {
 
 			let upload_size = (width * height * 4 * std::mem::size_of::<i8>() as i32) as u64;
 
-			let font_image_buffer_unbound = device
+			let mut font_image_upload_buffer = device
 				.create_buffer(upload_size, hal::buffer::Usage::TRANSFER_SRC)
 				.unwrap();
 
-			let font_buffer_req = device.get_buffer_requirements(&font_image_buffer_unbound);
+			let font_buffer_req = device.get_buffer_requirements(&font_image_upload_buffer);
 
-			let font_buffer_upload_type = gfx_helpers::get_memory_type(&physical_device, &font_buffer_req, hal::memory::Properties::CPU_VISIBLE);
+			let font_buffer_upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &font_buffer_req, hal::memory::Properties::CPU_VISIBLE);
 
 			let font_image_upload_memory = device
 				.allocate_memory(font_buffer_upload_type, font_buffer_req.size)
 				.unwrap();
 
-			let font_image_upload_buffer = device
-				.bind_buffer_memory(&font_image_upload_memory, 0, font_image_buffer_unbound)
-				.unwrap();
+			device.bind_buffer_memory(&font_image_upload_memory, 0, &mut font_image_upload_buffer).unwrap();
 
 			// copy image data into staging buffer
 			{
@@ -89,7 +89,7 @@ impl CimguiHal {
 			}
 
 			let kind = hal::image::Kind::D2(width as hal::image::Size, height as hal::image::Size, 1, 1);
-			let font_image_unbound = device
+			let mut font_image = device
 				.create_image(
 					kind, 
 					1, 
@@ -99,13 +99,13 @@ impl CimguiHal {
             		hal::image::ViewCapabilities::empty(),
 				).unwrap();
 
-			let font_image_reqs = device.get_image_requirements(&font_image_unbound);
+			let font_image_reqs = device.get_image_requirements(&font_image);
 
-			let font_memory_type = gfx_helpers::get_memory_type(&physical_device, &font_image_reqs, hal::memory::Properties::DEVICE_LOCAL);
+			let font_memory_type = gfx_helpers::get_memory_type(&device_state.physical_device, &font_image_reqs, hal::memory::Properties::DEVICE_LOCAL);
 
 			let font_image_memory = device.allocate_memory(font_memory_type, font_image_reqs.size).unwrap();
 
-			let font_image = device.bind_image_memory(&font_image_memory, 0, font_image_unbound).unwrap();
+			device.bind_image_memory(&font_image_memory, 0, &mut font_image).unwrap();
 
 			let font_image_view = device.create_image_view(
 				&font_image, 
@@ -125,73 +125,69 @@ impl CimguiHal {
 				)).unwrap();
 
 			//Transfer Font Data from Buffer to Image
-			let mut command_pool = device.create_command_pool_typed(queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT, 1)
+			let mut command_pool = device.create_command_pool_typed(&mut device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
                             .expect("Can't create command pool");
 
-			let submit = {
-				let mut cmd_buffer = command_pool.acquire_command_buffer(false);
 
-				let color_range = hal::image::SubresourceRange {
-					aspects: hal::format::Aspects::COLOR,
-					levels: 0..1,
-					layers: 0..1,
-				};
+			let mut cmd_buffer = command_pool.acquire_command_buffer::<hal::command::OneShot>();
 
-				let image_barrier = hal::memory::Barrier::Image {
+			let color_range = hal::image::SubresourceRange {
+				aspects: hal::format::Aspects::COLOR,
+				levels: 0..1,
+				layers: 0..1,
+			};
+
+			cmd_buffer.pipeline_barrier(
+				hal::pso::PipelineStage::TOP_OF_PIPE..hal::pso::PipelineStage::TRANSFER,
+				hal::memory::Dependencies::empty(),
+				&[hal::memory::Barrier::Image {
 					states: (hal::image::Access::empty(), hal::image::Layout::Undefined)
 						..(hal::image::Access::TRANSFER_WRITE, hal::image::Layout::TransferDstOptimal),
 					target: &font_image,
 					families: None,
 					range: color_range.clone(),
-				};
+				}],
+			);
 
-				 cmd_buffer.pipeline_barrier(
-					hal::pso::PipelineStage::TOP_OF_PIPE..hal::pso::PipelineStage::TRANSFER,
-					hal::memory::Dependencies::empty(),
-					&[image_barrier],
-				);
+			cmd_buffer.copy_buffer_to_image(
+				&font_image_upload_buffer,
+				&font_image,
+				hal::image::Layout::TransferDstOptimal,
+				&[hal::command::BufferImageCopy {
+					buffer_offset: 0,
+					buffer_width: width as u32,
+					buffer_height: height as u32,
+					image_layers: hal::image::SubresourceLayers {
+						aspects: hal::format::Aspects::COLOR,
+						level: 0,
+						layers: 0..1,
+					},
+					image_offset: hal::image::Offset { x: 0, y: 0, z: 0 },
+					image_extent: hal::image::Extent {
+						width: width as u32,
+						height: height as u32,
+						depth: 1,
+					},
+				}],
+			);
 
-				cmd_buffer.copy_buffer_to_image(
-					&font_image_upload_buffer,
-					&font_image,
-					hal::image::Layout::TransferDstOptimal,
-					&[hal::command::BufferImageCopy {
-						buffer_offset: 0,
-						buffer_width: width as u32,
-						buffer_height: height as u32,
-						image_layers: hal::image::SubresourceLayers {
-							aspects: hal::format::Aspects::COLOR,
-							level: 0,
-							layers: 0..1,
-						},
-						image_offset: hal::image::Offset { x: 0, y: 0, z: 0 },
-						image_extent: hal::image::Extent {
-							width: width as u32,
-							height: height as u32,
-							depth: 1,
-						},
-					}],
-				);
-
-				let image_barrier = hal::memory::Barrier::Image {
+			cmd_buffer.pipeline_barrier(
+				hal::pso::PipelineStage::TRANSFER..hal::pso::PipelineStage::FRAGMENT_SHADER,
+				hal::memory::Dependencies::empty(),
+				&[hal::memory::Barrier::Image {
 					states: (hal::image::Access::TRANSFER_WRITE, hal::image::Layout::TransferDstOptimal)
 						..(hal::image::Access::SHADER_READ, hal::image::Layout::ShaderReadOnlyOptimal),
 					target: &font_image,
 					families: None,
 					range: color_range.clone(),
-				};
-				cmd_buffer.pipeline_barrier(
-					hal::pso::PipelineStage::TRANSFER..hal::pso::PipelineStage::FRAGMENT_SHADER,
-					hal::memory::Dependencies::empty(),
-					&[image_barrier],
-				);
+				}],
+			);
 
-				cmd_buffer.finish()
-			};
+			cmd_buffer.finish();
 
 			let mut transfer_fence = device.create_fence(false).unwrap();
-			let submission = hal::queue::Submission::new().submit(Some(submit));
-        	queue_group.queues[0].submit(submission, Some(&mut transfer_fence));
+
+        	device_state.graphics_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
         	device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
 			//Write our font data to our descriptor set
@@ -311,7 +307,7 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device : &back::Device, physical_device : &back::PhysicalDevice) {
+	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device_state : &gfx_helpers::DeviceState) {
 		unsafe {
 			igEndFrame();
 
@@ -350,15 +346,15 @@ impl CimguiHal {
 			//TODO: Make below buffers Device Local after staging buffer is implemented
 
 			if self.gfx_data.vertex_buffer.is_some() {
-				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device, physical_device);
+				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device_state);
 			} else {
-			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device));
+			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state));
 			}
 
 			if self.gfx_data.index_buffer.is_some() {
-				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device, physical_device);
+				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device_state);
 			} else {
-			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device));
+			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state));
 			}
 
 			cmd_buffer.bind_graphics_pipeline(&self.gfx_data.pipeline);
@@ -441,37 +437,42 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn shutdown(self, device : &back::Device) {
+	pub fn shutdown(self, device_state : &gfx_helpers::DeviceState) {
 		unsafe {
 			igDestroyContext(std::ptr::null_mut());
 		}
 
 		match self.gfx_data.vertex_buffer {
-			Some(buffer) => buffer.destroy(device),
+			Some(buffer) => buffer.destroy(device_state),
 			None => {}
 		}
 		match self.gfx_data.index_buffer {
-			Some(buffer) => buffer.destroy(device),
+			Some(buffer) => buffer.destroy(device_state),
 			None => {}
 		}
 
-		device.destroy_descriptor_pool(self.gfx_data.desc_pool);
-		device.destroy_descriptor_set_layout(self.gfx_data.desc_set_layout);
-		device.destroy_render_pass(self.gfx_data.renderpass);
-		device.destroy_graphics_pipeline(self.gfx_data.pipeline);
-		device.destroy_pipeline_layout(self.gfx_data.pipeline_layout);
+		let device = &device_state.device;
 
-		//Font Data
-		device.destroy_image_view(self.font_data.image_view);
-		device.destroy_sampler(self.font_data.sampler);
-		device.destroy_image(self.font_data.image);
-		device.free_memory(self.font_data.memory);	
+		unsafe {
+			//Gfx Data Cleanup
+			device.destroy_descriptor_pool(self.gfx_data.desc_pool);
+			device.destroy_descriptor_set_layout(self.gfx_data.desc_set_layout);
+			device.destroy_render_pass(self.gfx_data.renderpass);
+			device.destroy_graphics_pipeline(self.gfx_data.pipeline);
+			device.destroy_pipeline_layout(self.gfx_data.pipeline_layout);
+
+			//Font Data Cleanup
+			device.destroy_image_view(self.font_data.image_view);
+			device.destroy_sampler(self.font_data.sampler);
+			device.destroy_image(self.font_data.image);
+			device.free_memory(self.font_data.memory);
+		}
 	}
 
 	fn create_gfx_resources(device: &back::Device, color_format : &hal::format::Format, depth_format: &hal::format::Format) -> CimguiGfxData {
 		
 		//Descriptor Set
-		let desc_set_layout = device.create_descriptor_set_layout( 
+		let desc_set_layout = unsafe { device.create_descriptor_set_layout( 
 			&[
 				//General Uniform (M,V,P, time)
 				hal::pso::DescriptorSetLayoutBinding {
@@ -483,9 +484,9 @@ impl CimguiHal {
 				},
 			],
 			&[],
-		).expect("Can't create descriptor set layout");
+		).expect("Can't create descriptor set layout") };
 
-		let mut desc_pool = device.create_descriptor_pool(
+		let mut desc_pool = unsafe { device.create_descriptor_pool(
 			1,
 			&[
 				hal::pso::DescriptorRangeDesc {
@@ -493,9 +494,9 @@ impl CimguiHal {
 						count: 1,
 					},
 			],
-		).expect("Can't create descriptor pool");
+		).expect("Can't create descriptor pool") };
 
-		let desc_set = desc_pool.allocate_set(&desc_set_layout).unwrap();
+		let desc_set =  unsafe { desc_pool.allocate_set(&desc_set_layout).unwrap() };
 
 		//Renderpass setup
 		let renderpass = {
@@ -532,10 +533,10 @@ impl CimguiHal {
 				accesses: hal::image::Access::empty()..(hal::image::Access::COLOR_ATTACHMENT_READ | hal::image::Access::COLOR_ATTACHMENT_WRITE),
 			};
 
-			device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass")
+			 unsafe { device.create_render_pass(&[attachment, depth_attachment], &[subpass], &[dependency]).expect("failed to create renderpass") }
 		};
 			
-		let new_pipeline_layout = device.create_pipeline_layout(Some(&desc_set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..4)]).expect("failed to create pipeline layout");
+		let new_pipeline_layout =  unsafe { device.create_pipeline_layout(Some(&desc_set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..4)]).expect("failed to create pipeline layout") };
 
         let new_pipeline = {
             let vs_module = {
@@ -545,7 +546,7 @@ impl CimguiHal {
                     .bytes()
                     .map(|b| b.unwrap())
                     .collect();
-                device.create_shader_module(&spirv).unwrap()
+                 unsafe { device.create_shader_module(&spirv).unwrap() }
             };
             let fs_module = {
                 let glsl = fs::read_to_string("data/shaders/imgui.frag").unwrap();
@@ -554,7 +555,7 @@ impl CimguiHal {
                     .bytes()
                     .map(|b| b.unwrap())
                     .collect();
-                device.create_shader_module(&spirv).unwrap()
+                 unsafe { device.create_shader_module(&spirv).unwrap() }
             };
 
             let pipeline = {
@@ -642,11 +643,15 @@ impl CimguiHal {
                 pipeline_desc.depth_stencil.depth_bounds = false;
                 pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
 
-                device.create_graphics_pipeline(&pipeline_desc, None)
+				unsafe {
+                	device.create_graphics_pipeline(&pipeline_desc, None)
+				}
             };
 
-            device.destroy_shader_module(vs_module);
-            device.destroy_shader_module(fs_module);
+			unsafe {
+				device.destroy_shader_module(vs_module);
+				device.destroy_shader_module(fs_module);
+			}
 
             pipeline.unwrap()
         };

@@ -1,5 +1,4 @@
 use ::hal;
-use ::back;
 use ::B;
 use ::gfx_helpers;
 
@@ -18,8 +17,7 @@ impl GpuBuffer {
 	pub fn new<T : Copy>(	data : &[T], 
 						 	usage : hal::buffer::Usage, 
 							memory_properties: hal::memory::Properties, 
-							device : &back::Device, 
-							physical_device : &back::PhysicalDevice) 
+							device_state : &gfx_helpers::DeviceState )
 	-> GpuBuffer {
         
 		let use_staging_buffer = (memory_properties & hal::memory::Properties::CPU_VISIBLE) != hal::memory::Properties::CPU_VISIBLE;
@@ -29,18 +27,18 @@ impl GpuBuffer {
 		let buffer_stride = std::mem::size_of::<T>() as u64;
         let buffer_len = data.len() as u64 * buffer_stride;
 		
-		let upload_buffer_unbound = device.create_buffer(buffer_len, upload_usage).unwrap();
-        let upload_buffer_req = device.get_buffer_requirements(&upload_buffer_unbound);
+		let mut upload_buffer = unsafe { device_state.device.create_buffer(buffer_len, upload_usage).unwrap() };
+        let upload_buffer_req = unsafe { device_state.device.get_buffer_requirements(&upload_buffer) };
 
-		let upload_type = gfx_helpers::get_memory_type(physical_device, &upload_buffer_req, upload_memory_properties);
+		let upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &upload_buffer_req, upload_memory_properties);
 
-        let upload_buffer_memory = device.allocate_memory(upload_type, upload_buffer_req.size).unwrap();
-        let upload_buffer = device.bind_buffer_memory(&upload_buffer_memory, 0, upload_buffer_unbound).unwrap();
+        let upload_buffer_memory = unsafe { device_state.device.allocate_memory(upload_type, upload_buffer_req.size).unwrap() };
+        unsafe { device_state.device.bind_buffer_memory(&upload_buffer_memory, 0, &mut upload_buffer).unwrap() };
 
-        {
-            let mut mapping_writer = device.acquire_mapping_writer::<T>(&upload_buffer_memory, 0..upload_buffer_req.size).unwrap();
+        unsafe {
+            let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&upload_buffer_memory, 0..upload_buffer_req.size).unwrap();
             mapping_writer[0..data.len()].copy_from_slice(&data);
-            device.release_mapping_writer(mapping_writer).unwrap();
+            device_state.device.release_mapping_writer(mapping_writer).unwrap();
         }
 
 		if use_staging_buffer {
@@ -56,26 +54,30 @@ impl GpuBuffer {
 		}
 	}
 
-	fn recreate<T : Copy>(&mut self, data : &[T], device : &back::Device, physical_device : &back::PhysicalDevice) {
-		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device, physical_device);
+	fn recreate<T : Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState) {
+		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device_state);
 		self.buffer = new_buffer.buffer;
 		self.memory = new_buffer.memory;
 		self.count  = data.len() as u32;
 	}
 
-	pub fn reupload<T : Copy>(&mut self, data: &[T], device : &back::Device, physical_device : &back::PhysicalDevice) {
+	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState) {
 		if data.len() as u32 > self.count {
-			self.recreate(data, device, physical_device);
+			self.recreate(data, device_state);
 		} else {
-			let mut mapping_writer = device.acquire_mapping_writer::<T>(&self.memory, 0..(self.count as u64 * (std::mem::size_of::<T>() as u64))).unwrap();
-			mapping_writer[0..data.len()].copy_from_slice(&data);
-			device.release_mapping_writer(mapping_writer).unwrap();
+			unsafe {
+				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..(self.count as u64 * (std::mem::size_of::<T>() as u64))).unwrap();
+				mapping_writer[0..data.len()].copy_from_slice(&data);
+				device_state.device.release_mapping_writer(mapping_writer).unwrap();
+			}
 		}
 	}
 
-    pub fn destroy(self, device: &back::Device) {
-        device.destroy_buffer(self.buffer);
-        device.free_memory(self.memory);
+    pub fn destroy(self, device_state : &gfx_helpers::DeviceState) {
+		unsafe {
+			device_state.device.destroy_buffer(self.buffer);
+			device_state.device.free_memory(self.memory);
+		}
     }
 }
 
@@ -95,37 +97,39 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device : &back::Device, physical_device : &back::PhysicalDevice ) -> Mesh {
+    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device_state : &gfx_helpers::DeviceState ) -> Mesh {
         Mesh {
 			//TODO: change these to Device Local when staging buffer is implemented
-            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device),
-            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device, physical_device)),
+            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state),
+            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state)),
         }
     }
 
-	pub fn record_draw_commands<Level : hal::command::Level>( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B, Level>, instance_count : u32)
+	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B>, instance_count : u32)
 	{
-		encoder.bind_vertex_buffers(0, Some((&self.vertex_buffer.buffer, 0)));
+		unsafe {
+			encoder.bind_vertex_buffers(0, Some((&self.vertex_buffer.buffer, 0)));
 
-		match &self.index_buffer {
-			Some(index_buffer) => {
-				encoder.bind_index_buffer(hal::buffer::IndexBufferView {
-					buffer: &index_buffer.buffer,
-					offset: 0,
-					index_type: hal::IndexType::U32,
-				});
-				encoder.draw_indexed(0..index_buffer.count, 0, 0..instance_count);
-			},
-			None => {
-				encoder.draw(0..self.vertex_buffer.count, 0..instance_count);
+			match &self.index_buffer {
+				Some(index_buffer) => {
+					encoder.bind_index_buffer(hal::buffer::IndexBufferView {
+						buffer: &index_buffer.buffer,
+						offset: 0,
+						index_type: hal::IndexType::U32,
+					});
+					encoder.draw_indexed(0..index_buffer.count, 0, 0..instance_count);
+				},
+				None => {
+					encoder.draw(0..self.vertex_buffer.count, 0..instance_count);
+				}
 			}
 		}
 	}
 
-    pub fn destroy(self, device: &back::Device) {
-        self.vertex_buffer.destroy(device);
+    pub fn destroy(self, device_state : &gfx_helpers::DeviceState) {
+        self.vertex_buffer.destroy(device_state);
 		match self.index_buffer {
-			Some(gpu_buffer) => gpu_buffer.destroy(device),
+			Some(gpu_buffer) => gpu_buffer.destroy(device_state),
 			None => {},
 		}
     }
