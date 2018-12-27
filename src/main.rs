@@ -688,8 +688,8 @@ unsafe {
             }
         };
 
-
-		let mut cmd_buffer = command_pool.acquire_command_buffer();
+		let mut cmd_buffer = command_pool.acquire_command_buffer::<hal::command::OneShot>();
+		cmd_buffer.begin();
 
 		let viewport = hal::pso::Viewport {
 			rect: hal::pso::Rect {

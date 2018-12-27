@@ -130,6 +130,7 @@ impl CimguiHal {
 
 
 			let mut cmd_buffer = command_pool.acquire_command_buffer::<hal::command::OneShot>();
+			cmd_buffer.begin();
 
 			let color_range = hal::image::SubresourceRange {
 				aspects: hal::format::Aspects::COLOR,
@@ -186,7 +187,6 @@ impl CimguiHal {
 			cmd_buffer.finish();
 
 			let mut transfer_fence = device.create_fence(false).unwrap();
-
         	device_state.graphics_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
         	device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
