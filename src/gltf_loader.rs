@@ -33,6 +33,7 @@ impl GltfModel {
 
 			let mut anim_channels = Vec::new();
 			let mut anim_duration = 0.0;
+			let mut anim_start_time = std::f32::MAX;
 
 			//Store the animation
 			for channel in anim.channels() {
@@ -42,6 +43,12 @@ impl GltfModel {
 				let node_index = channel.target().node().index();
 
 				let times = channel_reader.read_inputs().unwrap();
+
+				//TODO: clean up unwrap
+				let channel_start_time = times.clone().next().unwrap();
+				if channel_start_time < anim_start_time {
+					anim_start_time = channel_start_time;
+				}
 
 				match channel_reader.read_outputs().unwrap() {
 					gltf::animation::util::ReadOutputs::Translations(mut translations) => {
@@ -88,7 +95,7 @@ impl GltfModel {
 					},
 				}
 
-				//Get Anim Duration
+				//Get Anim Duration and Start Time
 				for time_val in channel_reader.read_inputs().unwrap() {
 				if time_val > anim_duration { anim_duration = time_val; }
 				}
@@ -97,6 +104,7 @@ impl GltfModel {
 			animations.push ( Animation {
 				channels: anim_channels,
 				duration: anim_duration,
+				start_time : anim_start_time,
 			});
 		}
 
@@ -329,7 +337,7 @@ impl GltfModel {
 
 		//TODO: Remove hard-coded 0 index
 		if self.current_anim_time > self.skeleton.animations[0].duration as f64 {
-            self.current_anim_time = 0.0;
+            self.current_anim_time = self.skeleton.animations[0].start_time as f64;
         }
 
 		//TODO: Remove hard-coded 0 index
@@ -343,11 +351,12 @@ impl GltfModel {
             let mut left_key_time = channel.keyframes.get_time(left_key_index);
             let mut right_key_time = channel.keyframes.get_time(right_key_index);
 
-            //If anim time isn't within keyframe times, we need to increment
+			//FIXME: can get stuck for certain models/animations
+
             while self.current_anim_time as f32 >= right_key_time || (self.current_anim_time as f32) < left_key_time {
                 left_key_index = (left_key_index + 1) % channel.keyframes.len();
                 right_key_index = (right_key_index + 1) % channel.keyframes.len();
-                
+				
                 left_key_time = channel.keyframes.get_time(left_key_index);
                 right_key_time = channel.keyframes.get_time(right_key_index);
             }
@@ -472,6 +481,7 @@ impl ChannelType {
 
 pub struct Animation {
     pub channels : Vec<(usize, AnimChannel)>,
+	pub start_time : f32,
     pub duration : f32,
 }
 
