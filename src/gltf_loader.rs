@@ -32,8 +32,8 @@ impl GltfModel {
 		for anim in gltf_model.animations() {
 
 			let mut anim_channels = Vec::new();
-			let mut anim_duration = 0.0;
 			let mut anim_start_time = std::f32::MAX;
+			let mut anim_end_time = 0.0;
 
 			//Store the animation
 			for channel in anim.channels() {
@@ -95,16 +95,16 @@ impl GltfModel {
 					},
 				}
 
-				//Get Anim Duration and Start Time
+				//Get Anim End Time
 				for time_val in channel_reader.read_inputs().unwrap() {
-				if time_val > anim_duration { anim_duration = time_val; }
+				if time_val > anim_end_time { anim_end_time = time_val; }
 				}
 			}
 
 			animations.push ( Animation {
 				channels: anim_channels,
-				duration: anim_duration,
 				start_time : anim_start_time,
+				end_time: anim_end_time,
 			});
 		}
 
@@ -336,7 +336,7 @@ impl GltfModel {
 		self.current_anim_time += delta_time;
 
 		//TODO: Remove hard-coded 0 index
-		if self.current_anim_time > self.skeleton.animations[0].duration as f64 {
+		if self.current_anim_time > self.skeleton.animations[0].end_time as f64 {
             self.current_anim_time = self.skeleton.animations[0].start_time as f64;
         }
 
@@ -482,7 +482,7 @@ impl ChannelType {
 pub struct Animation {
     pub channels : Vec<(usize, AnimChannel)>,
 	pub start_time : f32,
-    pub duration : f32,
+    pub end_time   : f32,
 }
 
 //Computes global transform of node at index
