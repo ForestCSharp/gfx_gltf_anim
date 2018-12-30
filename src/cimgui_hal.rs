@@ -190,6 +190,8 @@ impl CimguiHal {
         	device_state.graphics_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
         	device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
+			device.destroy_command_pool(command_pool.into_raw());
+
 			//Write our font data to our descriptor set
 			device.write_descriptor_sets( vec![
 				hal::pso::DescriptorSetWrite {

@@ -767,6 +767,8 @@ unsafe {
     gltf_model.destroy(&device_state);
 
 	cimgui_hal.shutdown(&device_state);
+
+    device_state.device.destroy_command_pool(command_pool.into_raw());
 	}
 }
 
