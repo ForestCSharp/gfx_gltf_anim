@@ -727,9 +727,9 @@ unsafe {
 		unsafe {
 			use std::ffi::CString;
 
-			igBegin(CString::new("Test Window").unwrap().as_ptr(), &mut true, 0);
-			igText(CString::new("Hello, world!").unwrap().as_ptr());
-			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 20.0f32, std::ptr::null(), 2.0f32);
+			igBegin(CString::new("Animation").unwrap().as_ptr(), &mut true, 0);
+			igText(CString::new("Drag the Slider to change anim speed").unwrap().as_ptr());
+			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 15.0f32, std::ptr::null(), 2.0f32);
 			igEnd();
 
 			igShowDemoWindow(&mut true);
