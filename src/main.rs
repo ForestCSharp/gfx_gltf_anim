@@ -71,11 +71,14 @@ unsafe {
     //Just pick the first GPU we find for now
     let adapter = adapters.remove(0);
 
+	//TODO: Query for specific features?
+	let features = adapter.physical_device.features();
+
 	let graphics_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
 	//TODO: try to get a transfer queue that's different than the graphics queue above (or don't?)
 	let _transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() ).expect("Failed to find Transfer Queue");
 
-	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1])]).expect("failed to create device and queues");
+	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1])], features).expect("failed to create device and queues");
 
 	let mut device_state = DeviceState {
 		device : gpu.device,
