@@ -42,7 +42,28 @@ impl GpuBuffer {
         }
 
 		if use_staging_buffer {
+
+			//TODO: will need mutable borrow to submit 
+
+			println!("Using Staging Buffer");
+
+			let transfer_dst_usage = hal::buffer::Usage::TRANSFER_DST | hal::buffer::Usage::VERTEX;
+			
+			let mut transfer_dst_buffer = unsafe { device_state.device.create_buffer(buffer_len, transfer_dst_usage).unwrap() };
+			let transfer_dst_buffer_req = unsafe { device_state.device.get_buffer_requirements(&transfer_dst_buffer) };
+
+			let transfer_dst_upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &transfer_dst_buffer_req, memory_properties);
+
+			let transfer_dst_buffer_memory = unsafe { device_state.device.allocate_memory(transfer_dst_upload_type, transfer_dst_buffer_req.size).unwrap() };
+			unsafe { device_state.device.bind_buffer_memory(&transfer_dst_buffer_memory, 0, &mut transfer_dst_buffer).unwrap() };
+			
 			//TODO: copy upload_buffer to final buffer using Device::copy_buffer
+			//TODO: replace with transfer queue
+			let mut command_pool = unsafe {device_state.device.create_command_pool_typed(&device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
+                            .expect("Can't create command pool") };
+
+			
+			//TODO: once transfer is done, clean up upload_buffer
 		}
 
 		GpuBuffer {

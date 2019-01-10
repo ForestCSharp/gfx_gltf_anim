@@ -84,8 +84,9 @@ unsafe {
 		device : gpu.device,
 		physical_device : adapter.physical_device,
 		graphics_queue_group : gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue"),
-		//transfer_queue_group : gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue"),
 	};
+
+	//let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
 
     let mut command_pool = device_state.device.create_command_pool_typed(&device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");

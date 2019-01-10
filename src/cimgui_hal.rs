@@ -41,7 +41,7 @@ pub struct CimguiFontData {
 }
 
 impl CimguiHal {
-	pub fn new(device_state: &mut gfx_helpers::DeviceState, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
+	pub fn new(device_state : &mut gfx_helpers::DeviceState, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
 
 		let device = &device_state.device;
 
