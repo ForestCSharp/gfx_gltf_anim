@@ -2,7 +2,7 @@ use ::hal;
 use ::B;
 use ::gfx_helpers;
 
-use hal::{Device, Backend};
+use hal::{PhysicalDevice,Device, Backend};
 
 pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
@@ -17,7 +17,8 @@ impl GpuBuffer {
 	pub fn new<T : Copy>(	data : &[T], 
 						 	usage : hal::buffer::Usage, 
 							memory_properties: hal::memory::Properties, 
-							device_state : &gfx_helpers::DeviceState )
+							device_state : &gfx_helpers::DeviceState,
+                            transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics> ) //TODO: make optional
 	-> GpuBuffer {
         
 		let use_staging_buffer = (memory_properties & hal::memory::Properties::CPU_VISIBLE) != hal::memory::Properties::CPU_VISIBLE;
@@ -59,7 +60,7 @@ impl GpuBuffer {
 			
 			//TODO: copy upload_buffer to final buffer using Device::copy_buffer
 			//TODO: replace with transfer queue
-			let mut command_pool = unsafe {device_state.device.create_command_pool_typed(&device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
+			let mut command_pool = unsafe {device_state.device.create_command_pool_typed(transfer_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
                             .expect("Can't create command pool") };
 
 			
@@ -75,16 +76,16 @@ impl GpuBuffer {
 		}
 	}
 
-	fn recreate<T : Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState) {
-		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device_state);
+	fn recreate<T : Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics> ) {
+		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device_state, transfer_queue_group);
 		self.buffer = new_buffer.buffer;
 		self.memory = new_buffer.memory;
 		self.count  = data.len() as u32;
 	}
 
-	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState) {
+	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>) {
 		if data.len() as u32 > self.count {
-			self.recreate(data, device_state);
+			self.recreate(data, device_state, transfer_queue_group);
 		} else {
 			unsafe {
 				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..(self.count as u64 * (std::mem::size_of::<T>() as u64))).unwrap();
@@ -118,11 +119,11 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device_state : &gfx_helpers::DeviceState ) -> Mesh {
+    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics> ) -> Mesh {
         Mesh {
 			//TODO: change these to Device Local when staging buffer is implemented
-            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state),
-            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state)),
+            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group),
+            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group)),
         }
     }
 

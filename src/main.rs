@@ -76,22 +76,24 @@ unsafe {
 
 	let graphics_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
 	//TODO: try to get a transfer queue that's different than the graphics queue above (or don't?)
-	let _transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() ).expect("Failed to find Transfer Queue");
+	//let transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() && family.id() != graphics_queue_family.id() ).expect("Failed to find Transfer Queue");
+    //let compute_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_compute() ).expect("Failed to find compute queue");
 
 	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1])], features).expect("failed to create device and queues");
 
 	let mut device_state = DeviceState {
 		device : gpu.device,
 		physical_device : adapter.physical_device,
-		graphics_queue_group : gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue"),
 	};
 
-	//let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
+    let mut graphics_queue_group = gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue");
+    //let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
+    //let mut compute_queue_group  = gpu.queues.take(compute_queue_family.id()).expect("failed to take compute queue");
 
-    let mut command_pool = device_state.device.create_command_pool_typed(&device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
+    let mut command_pool = device_state.device.create_command_pool_typed(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
 
-	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state);
+	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut graphics_queue_group);
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -117,7 +119,8 @@ unsafe {
 	let mut uniform_gpu_buffer = GpuBuffer::new(&[camera_uniform_struct], 
 												hal::buffer::Usage::UNIFORM, 
 												hal::memory::Properties::CPU_VISIBLE, 
-												&device_state);
+												&device_state,
+                                                &mut graphics_queue_group);
 
     //Descriptor Set
     let set_layout = device_state.device.create_descriptor_set_layout( 
@@ -447,7 +450,7 @@ unsafe {
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout);
 
 	//initialize cimgui
-	let mut cimgui_hal = CimguiHal::new( &mut device_state, &format, &depth_format);
+	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut graphics_queue_group, &format, &depth_format);
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
     
@@ -671,13 +674,13 @@ unsafe {
 
         camera_uniform_struct.time = time as f32;
 
-		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state);
+		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut graphics_queue_group);
 
         //Animate Bones
         gltf_model.animate(delta_time *  anim_speed as f64);
 
 		//Upload Bones to GPU
-		gltf_model.upload_bones(&device_state);
+		gltf_model.upload_bones(&device_state, &mut graphics_queue_group);
         
         device_state.device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();
@@ -739,7 +742,7 @@ unsafe {
 			igShowDemoWindow(&mut true);
 		}
 
-		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state);
+		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state, &mut graphics_queue_group);
 
 		cmd_buffer.finish();
 
@@ -751,14 +754,14 @@ unsafe {
                 wait_semaphores: Some((&acquisition_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)),
                 signal_semaphores: Some(&submission_semaphore),
             };
-            device_state.graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+            graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
         }
 
         //TODO: Remove once submission_semaphore is working properly
         device_state.device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
-        if let Err(_) = swap_chain.present(&mut device_state.graphics_queue_group.queues[0], frame, &[submission_semaphore]) {
+        if let Err(_) = swap_chain.present(&mut graphics_queue_group.queues[0], frame, &[submission_semaphore]) {
             needs_resize = true;
         }
 

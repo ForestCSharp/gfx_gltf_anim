@@ -41,7 +41,11 @@ pub struct CimguiFontData {
 }
 
 impl CimguiHal {
-	pub fn new(device_state : &mut gfx_helpers::DeviceState, color_format : &hal::format::Format, depth_format : &hal::format::Format) -> CimguiHal {
+	pub fn new( device_state : &mut gfx_helpers::DeviceState, 
+                transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>,
+                color_format : &hal::format::Format, 
+                depth_format : &hal::format::Format) 
+    -> CimguiHal {
 
 		let device = &device_state.device;
 
@@ -125,7 +129,7 @@ impl CimguiHal {
 				)).unwrap();
 
 			//Transfer Font Data from Buffer to Image
-			let mut command_pool = device.create_command_pool_typed(&mut device_state.graphics_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
+			let mut command_pool = device.create_command_pool_typed(transfer_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
                             .expect("Can't create command pool");
 
 
@@ -187,7 +191,7 @@ impl CimguiHal {
 			cmd_buffer.finish();
 
 			let mut transfer_fence = device.create_fence(false).unwrap();
-        	device_state.graphics_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
+        	transfer_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
         	device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
 			device.destroy_command_pool(command_pool.into_raw());
@@ -309,7 +313,7 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device_state : &gfx_helpers::DeviceState) {
+	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>) {
 		unsafe {
 			igEndFrame();
 
@@ -348,15 +352,15 @@ impl CimguiHal {
 			//TODO: Make below buffers Device Local after staging buffer is implemented
 
 			if self.gfx_data.vertex_buffer.is_some() {
-				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device_state);
+				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device_state, transfer_queue_group);
 			} else {
-			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state));
+			    self.gfx_data.vertex_buffer = Some(GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group));
 			}
 
 			if self.gfx_data.index_buffer.is_some() {
-				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device_state);
+				self.gfx_data.index_buffer.as_mut().unwrap().reupload(&in_indices, device_state, transfer_queue_group);
 			} else {
-			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state));
+			    self.gfx_data.index_buffer = Some(GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group));
 			}
 
 			cmd_buffer.bind_graphics_pipeline(&self.gfx_data.pipeline);

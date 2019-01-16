@@ -18,7 +18,7 @@ pub struct GltfModel {
 
 //TODO: Bind correct uniform buffer for a given animated mesh
 impl GltfModel {
-	pub fn new( file_path : &str, device_state : &gfx_helpers::DeviceState) -> GltfModel {
+	pub fn new( file_path : &str, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>) -> GltfModel {
 
 		//Load GLTF Model
 		let (gltf_model, buffers, _) = gltf::import(file_path).unwrap();
@@ -257,7 +257,7 @@ impl GltfModel {
 						});
 					} 
 
-					meshes.push(Mesh::new(vertices_vec, indices_vec, device_state));
+					meshes.push(Mesh::new(vertices_vec, indices_vec, device_state, transfer_queue_group));
 				},
 				None => {},
 			}
@@ -318,7 +318,7 @@ impl GltfModel {
 			skeleton : Skeleton {
 				//TODO: Don't try to create this buffer if no bones (len() == 0)
     			//FIXME: Causes crash if no bones (i.e. unskinned models)
-				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, hal::memory::Properties::CPU_VISIBLE, device_state),
+				gpu_buffer : GpuBuffer::new(&bones, hal::buffer::Usage::UNIFORM, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group),
 				bones : bones,
 				gpu_index_to_node_index : gpu_index_to_node_index,
 				inverse_bind_matrices : inverse_bind_matrices,
@@ -395,8 +395,8 @@ impl GltfModel {
         }
 	}
 
-	pub fn upload_bones(&mut self, device_state : &gfx_helpers::DeviceState) {
-		self.skeleton.gpu_buffer.reupload(&self.skeleton.bones, device_state);
+	pub fn upload_bones(&mut self, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>) {
+		self.skeleton.gpu_buffer.reupload(&self.skeleton.bones, device_state, transfer_queue_group);
 	}
 
 	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B>, instance_count : u32) {
