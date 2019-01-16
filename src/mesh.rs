@@ -44,11 +44,7 @@ impl GpuBuffer {
 
 		if use_staging_buffer {
 
-			//TODO: will need mutable borrow to submit 
-
-			println!("Using Staging Buffer");
-
-			let transfer_dst_usage = hal::buffer::Usage::TRANSFER_DST | hal::buffer::Usage::VERTEX;
+			let transfer_dst_usage = hal::buffer::Usage::TRANSFER_DST | usage;
 			
 			let mut transfer_dst_buffer = unsafe { device_state.device.create_buffer(buffer_len, transfer_dst_usage).unwrap() };
 			let transfer_dst_buffer_req = unsafe { device_state.device.get_buffer_requirements(&transfer_dst_buffer) };
@@ -58,13 +54,42 @@ impl GpuBuffer {
 			let transfer_dst_buffer_memory = unsafe { device_state.device.allocate_memory(transfer_dst_upload_type, transfer_dst_buffer_req.size).unwrap() };
 			unsafe { device_state.device.bind_buffer_memory(&transfer_dst_buffer_memory, 0, &mut transfer_dst_buffer).unwrap() };
 			
-			//TODO: copy upload_buffer to final buffer using Device::copy_buffer
-			//TODO: replace with transfer queue
 			let mut command_pool = unsafe {device_state.device.create_command_pool_typed(transfer_queue_group, hal::pool::CommandPoolCreateFlags::TRANSIENT)
                             .expect("Can't create command pool") };
 
-			
-			//TODO: once transfer is done, clean up upload_buffer
+            let mut cmd_buffer = command_pool.acquire_command_buffer::<hal::command::OneShot>();
+			unsafe {
+                cmd_buffer.begin();
+
+                cmd_buffer.copy_buffer( &upload_buffer, 
+                                        &transfer_dst_buffer,
+                                        &[hal::command::BufferCopy {
+                                            src: 0,
+                                            dst: 0,
+                                            size: buffer_len,
+                                        }]
+                );
+
+                cmd_buffer.finish();
+
+                let mut transfer_fence = device_state.device.create_fence(false).unwrap();
+                transfer_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
+                device_state.device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
+
+                device_state.device.destroy_command_pool(command_pool.into_raw());
+
+                //once transfer is done, clean up upload_buffer
+                device_state.device.destroy_buffer(upload_buffer);
+			    device_state.device.free_memory(upload_buffer_memory);
+            }
+
+            return GpuBuffer {
+                buffer            : transfer_dst_buffer,
+                memory            : transfer_dst_buffer_memory,
+                usage             : transfer_dst_usage,
+                memory_properties : memory_properties,
+                count             : data.len() as u32,
+            };
 		}
 
 		GpuBuffer {
@@ -121,9 +146,8 @@ pub struct Mesh {
 impl Mesh {
     pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics> ) -> Mesh {
         Mesh {
-			//TODO: change these to Device Local when staging buffer is implemented
-            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group),
-            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, device_state, transfer_queue_group)),
+            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
+            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),
         }
     }
 

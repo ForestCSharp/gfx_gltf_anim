@@ -87,6 +87,7 @@ unsafe {
 	};
 
     let mut graphics_queue_group = gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue");
+    //FIXME: failing to take transfer queue even if ID is different from graphics queue?
     //let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
     //let mut compute_queue_group  = gpu.queues.take(compute_queue_family.id()).expect("failed to take compute queue");
 
