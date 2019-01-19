@@ -187,8 +187,6 @@ unsafe {
         ]);
     }
 
-    println!("WOW");
-
     let create_swapchain = |device_state : &DeviceState, surface: &mut <back::Backend as hal::Backend>::Surface| {
         let (capabilities, formats, _present_modes, _composite_alphas) = surface.compatibility(&device_state.physical_device);
         let new_format = formats.map_or(hal::format::Format::Rgba8Srgb, |formats| {
