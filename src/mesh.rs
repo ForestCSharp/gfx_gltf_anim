@@ -2,7 +2,7 @@ use ::hal;
 use ::B;
 use ::gfx_helpers;
 
-use hal::{PhysicalDevice,Device, Backend};
+use hal::{Device, Backend};
 
 pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
@@ -141,13 +141,15 @@ pub struct Vertex {
 pub struct Mesh {
     pub vertex_buffer : GpuBuffer,
     pub index_buffer : Option<GpuBuffer>,
+    pub skeleton_index : Option<usize>,
 }
 
 impl Mesh {
-    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics> ) -> Mesh {
+    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, skeleton_index : Option<usize>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics> ) -> Mesh {
         Mesh {
-            vertex_buffer : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
-            index_buffer  : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),
+            vertex_buffer  : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
+            index_buffer   : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),
+            skeleton_index : skeleton_index,
         }
     }
 

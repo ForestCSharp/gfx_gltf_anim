@@ -94,7 +94,7 @@ unsafe {
     let mut command_pool = device_state.device.create_command_pool_typed(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
 
-	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut graphics_queue_group);
+	let mut gltf_model = GltfModel::new("data/models/Jet.gltf", &device_state, &mut graphics_queue_group);
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -158,21 +158,36 @@ unsafe {
 
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
-    //Descriptor write for our two uniform buffers
-    device_state.device.write_descriptor_sets( vec![
-        hal::pso::DescriptorSetWrite {
-            set: &desc_set,
-            binding: 0,
-            array_offset: 0,
-            descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
-        },
-        hal::pso::DescriptorSetWrite {
-            set: &desc_set,
-            binding: 1,
-            array_offset: 0,
-            descriptors: Some(hal::pso::Descriptor::Buffer(&gltf_model.skeleton.gpu_buffer.buffer, None..None)),
-        },
-    ]);
+    //Descriptor write for our two uniform buffers (TODO: Handle in gltf_loader)
+    //FIXME: quick hack to make this work with models that don't have skeletons
+    if gltf_model.skeletons.len() > 0 {
+        device_state.device.write_descriptor_sets( vec![
+            hal::pso::DescriptorSetWrite {
+                set: &desc_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
+            },
+            hal::pso::DescriptorSetWrite {
+                set: &desc_set,
+                binding: 1,
+                array_offset: 0,
+                descriptors: Some(hal::pso::Descriptor::Buffer(&gltf_model.skeletons[0].gpu_buffer.buffer, None..None)),
+            },
+        ]);
+    }
+    else {
+        device_state.device.write_descriptor_sets( vec![
+            hal::pso::DescriptorSetWrite {
+                set: &desc_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
+            },
+        ]);
+    }
+
+    println!("WOW");
 
     let create_swapchain = |device_state : &DeviceState, surface: &mut <back::Backend as hal::Backend>::Surface| {
         let (capabilities, formats, _present_modes, _composite_alphas) = surface.compatibility(&device_state.physical_device);
@@ -678,7 +693,7 @@ unsafe {
 		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut graphics_queue_group);
 
         //Animate Bones
-        gltf_model.animate(delta_time *  anim_speed as f64);
+        gltf_model.animate(0, delta_time *  anim_speed as f64);
 
 		//Upload Bones to GPU
 		gltf_model.upload_bones(&device_state, &mut graphics_queue_group);
