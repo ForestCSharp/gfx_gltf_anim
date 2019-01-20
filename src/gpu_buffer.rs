@@ -18,7 +18,7 @@ impl GpuBuffer {
 						 	usage : hal::buffer::Usage, 
 							memory_properties: hal::memory::Properties, 
 							device_state : &gfx_helpers::DeviceState,
-                            transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer> ) //TODO: make optional
+                            transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) //TODO: make optional
 	-> GpuBuffer {
         
 		let use_staging_buffer = (memory_properties & hal::memory::Properties::CPU_VISIBLE) != hal::memory::Properties::CPU_VISIBLE;
@@ -101,14 +101,14 @@ impl GpuBuffer {
 		}
 	}
 
-	fn recreate<T : Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer> ) {
+	fn recreate<T : Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) {
 		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device_state, transfer_queue_group);
 		self.buffer = new_buffer.buffer;
 		self.memory = new_buffer.memory;
 		self.count  = data.len() as u32;
 	}
 
-	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer>) {
+	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
 		if data.len() as u32 > self.count {
 			self.recreate(data, device_state, transfer_queue_group);
 		} else {

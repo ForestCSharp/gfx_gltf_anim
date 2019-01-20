@@ -19,7 +19,7 @@ pub struct GltfModel {
 
 //TODO: Bind correct uniform buffer for a given animated mesh
 impl GltfModel {
-	pub fn new( file_path : &str, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer>) -> GltfModel {
+	pub fn new( file_path : &str, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) -> GltfModel {
 
 		//Load GLTF Model
 		let (gltf_model, buffers, _) = gltf::import(file_path).unwrap();
@@ -400,7 +400,7 @@ impl GltfModel {
         }
 	}
 
-	pub fn upload_bones(&mut self, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer>) {
+	pub fn upload_bones(&mut self, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
         for mut skeleton in &mut self.skeletons {
 		    skeleton.gpu_buffer.reupload(&skeleton.bones, device_state, transfer_queue_group);
         }
@@ -537,7 +537,7 @@ pub struct Mesh {
 }
 
 impl Mesh {
-    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, skeleton_index : Option<usize>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer> ) -> Mesh {
+    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, skeleton_index : Option<usize>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) -> Mesh {
         Mesh {
             vertex_buffer  : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
             index_buffer   : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),

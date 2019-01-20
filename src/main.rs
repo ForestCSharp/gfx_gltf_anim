@@ -79,27 +79,19 @@ unsafe {
         println!("{:?}", queue_family);
     }
 
-	let graphics_queue_family = adapter.queue_families.iter().find(|family| 
-        family.supports_graphics() 
+	let general_queue_family = adapter.queue_families.iter().find(|family| 
+        family.supports_graphics()
+        && family.supports_transfer()
     ).expect("Failed to find Graphics Queue");
 
     //FIXME: fallback to graphics_queue_family (general queues) if these can't be found
     let compute_queue_family  = adapter.queue_families.iter().find(|family| 
         family.supports_compute() 
-        && family.id() != graphics_queue_family.id() 
+        && family.id() != general_queue_family.id() 
     ).expect("Failed to find compute queue");
 
-	let transfer_queue_family = adapter.queue_families.iter().find(|family| 
-        family.supports_transfer() 
-        //&& family.id() != graphics_queue_family.id() //FIXME: transfer queue causing create_fence crash on DX12 if unique
-        && family.id() != compute_queue_family.id() 
-    ).expect("Failed to find Transfer Queue");
-
-    println!("Graphics ID: {:?}, Compute ID: {:?}, Transfer ID: {:?}", graphics_queue_family.id(), compute_queue_family.id(), transfer_queue_family.id());
-
-	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1]), 
-                                                 (&compute_queue_family,  &[1.0; 1]), 
-                                                 (&transfer_queue_family, &[1.0; 1])], 
+	let mut gpu = adapter.physical_device.open(&[(&general_queue_family, &[1.0; 1]), 
+                                                 (&compute_queue_family,  &[1.0; 1])],
                                                 features)
                                                 .expect("failed to create device and queues");
 
@@ -108,15 +100,13 @@ unsafe {
 		physical_device : adapter.physical_device,
 	};
 
-    //TODO: single-general-queue fallback
-    let mut graphics_queue_group = gpu.queues.take::<hal::Graphics>(graphics_queue_family.id()).expect("failed to take graphics queue");
+    let mut general_queue_group = gpu.queues.take::<hal::General>(general_queue_family.id()).expect("failed to take graphics queue");
     let mut compute_queue_group  = gpu.queues.take::<hal::Compute>(compute_queue_family.id()).expect("failed to take compute queue");
-    let mut transfer_queue_group = gpu.queues.take::<hal::Transfer>(transfer_queue_family.id()).expect("failed to take transfer queue"); 
 
-    let mut command_pool = device_state.device.create_command_pool_typed::<hal::Graphics>(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
+    let mut command_pool = device_state.device.create_command_pool_typed::<hal::General>(&general_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
 
-	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut transfer_queue_group);
+	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut general_queue_group);
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -143,7 +133,7 @@ unsafe {
 												hal::buffer::Usage::UNIFORM, 
 												hal::memory::Properties::CPU_VISIBLE, 
 												&device_state,
-                                                &mut transfer_queue_group);
+                                                &mut general_queue_group);
 
     //Descriptor Set
     //FIXME: make this work with models that don't have skeletons
@@ -487,7 +477,7 @@ unsafe {
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout);
 
 	//initialize cimgui
-	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut transfer_queue_group, &format, &depth_format);
+	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut general_queue_group, &format, &depth_format);
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
@@ -712,13 +702,13 @@ unsafe {
 
         camera_uniform_struct.time = time as f32;
 
-		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut transfer_queue_group);
+		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut general_queue_group);
 
         //Animate Bones
         gltf_model.animate(0, delta_time *  anim_speed as f64);
 
 		//Upload Bones to GPU
-		gltf_model.upload_bones(&device_state, &mut transfer_queue_group);
+		gltf_model.upload_bones(&device_state, &mut general_queue_group);
         
         device_state.device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();
@@ -780,7 +770,7 @@ unsafe {
 			igShowDemoWindow(&mut true);
 		}
 
-		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state, &mut transfer_queue_group);
+		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state, &mut general_queue_group);
 
 		cmd_buffer.finish();
 
@@ -792,14 +782,14 @@ unsafe {
                 wait_semaphores: Some((&acquisition_semaphore, hal::pso::PipelineStage::BOTTOM_OF_PIPE)),
                 signal_semaphores: Some(&submission_semaphore),
             };
-            graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
+            general_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
         }
 
         //TODO: Remove this and fix synchro bugs(last time i tried there were some weird synchro issues when going full screen on DX12 backend)
         device_state.device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
-        if let Err(_) = swap_chain.present(&mut graphics_queue_group.queues[0], frame, &[submission_semaphore]) {
+        if let Err(_) = swap_chain.present(&mut general_queue_group.queues[0], frame, &[submission_semaphore]) {
             needs_resize = true;
         }
 
