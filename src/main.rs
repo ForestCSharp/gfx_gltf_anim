@@ -91,12 +91,14 @@ unsafe {
 
 	let transfer_queue_family = adapter.queue_families.iter().find(|family| 
         family.supports_transfer() 
-        && family.id() != graphics_queue_family.id() 
+        //&& family.id() != graphics_queue_family.id() //FIXME: transfer queue causing create_fence crash on DX12 if unique
         && family.id() != compute_queue_family.id() 
     ).expect("Failed to find Transfer Queue");
 
+    println!("Graphics ID: {:?}, Compute ID: {:?}, Transfer ID: {:?}", graphics_queue_family.id(), compute_queue_family.id(), transfer_queue_family.id());
+
 	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1]), 
-                                                 (&compute_queue_family, &[1.0; 1]), 
+                                                 (&compute_queue_family,  &[1.0; 1]), 
                                                  (&transfer_queue_family, &[1.0; 1])], 
                                                 features)
                                                 .expect("failed to create device and queues");
@@ -488,8 +490,9 @@ unsafe {
 	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut transfer_queue_group, &format, &depth_format);
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
-    
+
     let mut frame_fence = device_state.device.create_fence(false).unwrap();
+
     let mut running = true;
     let mut needs_resize = true;
     let (mut window_width, mut window_height) = (0u32, 0u32);
@@ -792,7 +795,7 @@ unsafe {
             graphics_queue_group.queues[0].submit(submission, Some(&mut frame_fence));
         }
 
-        //TODO: Remove once submission_semaphore is working properly
+        //TODO: Remove this and fix synchro bugs(last time i tried there were some weird synchro issues when going full screen on DX12 backend)
         device_state.device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
@@ -805,6 +808,8 @@ unsafe {
 
     let total_time = timestamp() - first_timestamp;
     println!("Avg Frame Time: {}", total_time / num_frames as f64);
+
+    device_state.device.wait_idle().unwrap();
 
     gltf_model.destroy(&device_state);
 
