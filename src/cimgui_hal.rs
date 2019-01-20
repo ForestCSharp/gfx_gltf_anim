@@ -42,7 +42,7 @@ pub struct CimguiFontData {
 
 impl CimguiHal {
 	pub fn new( device_state : &mut gfx_helpers::DeviceState, 
-                transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>,
+                transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer>,
                 color_format : &hal::format::Format, 
                 depth_format : &hal::format::Format) 
     -> CimguiHal {
@@ -313,7 +313,7 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Graphics>) {
+	pub fn render(&mut self, cmd_buffer : &mut hal::command::CommandBuffer<B, hal::Graphics>, framebuffer: &<B as Backend>::Framebuffer, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer>) {
 		unsafe {
 			igEndFrame();
 

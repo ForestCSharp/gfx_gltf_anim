@@ -70,31 +70,36 @@ unsafe {
 
     //Just pick the first GPU we find for now
     let adapter = adapters.remove(0);
+    println!("GPU Name: {}", adapter.info.name);
 
 	//TODO: Query for specific features?
 	let features = adapter.physical_device.features();
 
-	let graphics_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
-	//TODO: try to get a transfer queue that's different than the graphics queue above (or don't?)
-	//let transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() && family.id() != graphics_queue_family.id() ).expect("Failed to find Transfer Queue");
-    //let compute_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_compute() ).expect("Failed to find compute queue");
+    for queue_family in adapter.queue_families.iter() {
+        println!("{:?}", queue_family);
+    }
 
-	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1])], features).expect("failed to create device and queues");
+	let graphics_queue_family = adapter.queue_families.iter().find(|family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
+
+    //FIXME: fallback to graphics_queue_family (general queues) if these can't be found
+    let compute_queue_family  = adapter.queue_families.iter().find(|family| family.supports_compute() && family.id() != graphics_queue_family.id() ).expect("Failed to find compute queue");
+	let transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() && family.id() != graphics_queue_family.id() ).expect("Failed to find Transfer Queue");
+
+	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1]), (&compute_queue_family, &[1.0; 1]), (&transfer_queue_family, &[1.0; 1])], features).expect("failed to create device and queues");
 
 	let mut device_state = DeviceState {
 		device : gpu.device,
 		physical_device : adapter.physical_device,
 	};
 
-    let mut graphics_queue_group = gpu.queues.take(graphics_queue_family.id()).expect("failed to take graphics queue");
-    //FIXME: failing to take transfer queue even if ID is different from graphics queue?
-    //let mut transfer_queue_group = gpu.queues.take(transfer_queue_family.id()).expect("failed to take transfer queue");
-    //let mut compute_queue_group  = gpu.queues.take(compute_queue_family.id()).expect("failed to take compute queue");
+    let mut graphics_queue_group = gpu.queues.take::<hal::Graphics>(graphics_queue_family.id()).expect("failed to take graphics queue");
+    let mut compute_queue_group  = gpu.queues.take::<hal::Compute>(compute_queue_family.id()).expect("failed to take compute queue");
+    let mut transfer_queue_group = gpu.queues.take::<hal::Transfer>(transfer_queue_family.id()).expect("failed to take transfer queue"); 
 
-    let mut command_pool = device_state.device.create_command_pool_typed(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
+    let mut command_pool = device_state.device.create_command_pool_typed::<hal::Graphics>(&graphics_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
 
-	let mut gltf_model = GltfModel::new("data/models/Jet.gltf", &device_state, &mut graphics_queue_group);
+	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut transfer_queue_group);
 
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
@@ -121,9 +126,10 @@ unsafe {
 												hal::buffer::Usage::UNIFORM, 
 												hal::memory::Properties::CPU_VISIBLE, 
 												&device_state,
-                                                &mut graphics_queue_group);
+                                                &mut transfer_queue_group);
 
     //Descriptor Set
+    //FIXME: make this work with models that don't have skeletons
     let set_layout = device_state.device.create_descriptor_set_layout( 
         &[
             //General Uniform (M,V,P, time)
@@ -159,7 +165,7 @@ unsafe {
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
 
     //Descriptor write for our two uniform buffers (TODO: Handle in gltf_loader)
-    //FIXME: quick hack to make this work with models that don't have skeletons
+    //FIXME: make this work with models that don't have skeletons
     if gltf_model.skeletons.len() > 0 {
         device_state.device.write_descriptor_sets( vec![
             hal::pso::DescriptorSetWrite {
@@ -464,7 +470,7 @@ unsafe {
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout);
 
 	//initialize cimgui
-	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut graphics_queue_group, &format, &depth_format);
+	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut transfer_queue_group, &format, &depth_format);
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
     
@@ -688,13 +694,13 @@ unsafe {
 
         camera_uniform_struct.time = time as f32;
 
-		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut graphics_queue_group);
+		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut transfer_queue_group);
 
         //Animate Bones
         gltf_model.animate(0, delta_time *  anim_speed as f64);
 
 		//Upload Bones to GPU
-		gltf_model.upload_bones(&device_state, &mut graphics_queue_group);
+		gltf_model.upload_bones(&device_state, &mut transfer_queue_group);
         
         device_state.device.reset_fence(&frame_fence).unwrap();
         command_pool.reset();
@@ -756,7 +762,7 @@ unsafe {
 			igShowDemoWindow(&mut true);
 		}
 
-		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state, &mut graphics_queue_group);
+		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state, &mut transfer_queue_group);
 
 		cmd_buffer.finish();
 
