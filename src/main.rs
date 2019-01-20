@@ -29,8 +29,8 @@ use std::io::{Read};
 
 use hal::{Instance, Device, PhysicalDevice, DescriptorPool, Surface, Swapchain, QueueFamily};
 
-mod mesh;
-use mesh::{GpuBuffer, Vertex};
+mod gpu_buffer;
+use gpu_buffer::GpuBuffer;
 
 mod cimgui_hal;
 use cimgui_hal::*;
@@ -79,19 +79,34 @@ unsafe {
         println!("{:?}", queue_family);
     }
 
-	let graphics_queue_family = adapter.queue_families.iter().find(|family| family.supports_graphics() ).expect("Failed to find Graphics Queue");
+	let graphics_queue_family = adapter.queue_families.iter().find(|family| 
+        family.supports_graphics() 
+    ).expect("Failed to find Graphics Queue");
 
     //FIXME: fallback to graphics_queue_family (general queues) if these can't be found
-    let compute_queue_family  = adapter.queue_families.iter().find(|family| family.supports_compute() && family.id() != graphics_queue_family.id() ).expect("Failed to find compute queue");
-	let transfer_queue_family = adapter.queue_families.iter().find(|ref family| family.supports_transfer() && family.id() != graphics_queue_family.id() ).expect("Failed to find Transfer Queue");
+    let compute_queue_family  = adapter.queue_families.iter().find(|family| 
+        family.supports_compute() 
+        && family.id() != graphics_queue_family.id() 
+    ).expect("Failed to find compute queue");
 
-	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1]), (&compute_queue_family, &[1.0; 1]), (&transfer_queue_family, &[1.0; 1])], features).expect("failed to create device and queues");
+	let transfer_queue_family = adapter.queue_families.iter().find(|family| 
+        family.supports_transfer() 
+        && family.id() != graphics_queue_family.id() 
+        && family.id() != compute_queue_family.id() 
+    ).expect("Failed to find Transfer Queue");
+
+	let mut gpu = adapter.physical_device.open(&[(&graphics_queue_family, &[1.0; 1]), 
+                                                 (&compute_queue_family, &[1.0; 1]), 
+                                                 (&transfer_queue_family, &[1.0; 1])], 
+                                                features)
+                                                .expect("failed to create device and queues");
 
 	let mut device_state = DeviceState {
 		device : gpu.device,
 		physical_device : adapter.physical_device,
 	};
 
+    //TODO: single-general-queue fallback
     let mut graphics_queue_group = gpu.queues.take::<hal::Graphics>(graphics_queue_family.id()).expect("failed to take graphics queue");
     let mut compute_queue_group  = gpu.queues.take::<hal::Compute>(compute_queue_family.id()).expect("failed to take compute queue");
     let mut transfer_queue_group = gpu.queues.take::<hal::Transfer>(transfer_queue_family.id()).expect("failed to take transfer queue"); 

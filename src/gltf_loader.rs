@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 extern crate gltf;
 
-use mesh::{Vertex,Mesh, GpuBuffer};
+use gpu_buffer::{GpuBuffer};
 use ::gfx_helpers;
 
 pub struct GltfModel {
@@ -407,9 +407,8 @@ impl GltfModel {
 	}
 
 	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B>, instance_count : u32) {
-
-
 		for mesh in &self.meshes {
+            //TODO: bind correct skeleton when rendering mesh
 			mesh.record_draw_commands(encoder, instance_count);
 		}
 	}
@@ -519,4 +518,59 @@ pub fn compute_global_transform(index: usize, nodes: &Vec<Node>) -> glm::Mat4 {
     }
 
     result
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Vertex {
+    pub a_pos: [f32; 3],
+    pub a_col: [f32; 4],
+    pub a_uv:  [f32; 2],
+    pub a_norm: [f32; 3],
+    pub a_joint_indices: [f32; 4],
+    pub a_joint_weights: [f32; 4],
+}
+
+pub struct Mesh {
+    pub vertex_buffer : GpuBuffer,
+    pub index_buffer : Option<GpuBuffer>,
+    pub skeleton_index : Option<usize>,
+}
+
+impl Mesh {
+    pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, skeleton_index : Option<usize>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::Transfer> ) -> Mesh {
+        Mesh {
+            vertex_buffer  : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
+            index_buffer   : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),
+            skeleton_index : skeleton_index,
+        }
+    }
+
+	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B>, instance_count : u32)
+	{
+		unsafe {
+			encoder.bind_vertex_buffers(0, Some((&self.vertex_buffer.buffer, 0)));
+
+			match &self.index_buffer {
+				Some(index_buffer) => {
+					encoder.bind_index_buffer(hal::buffer::IndexBufferView {
+						buffer: &index_buffer.buffer,
+						offset: 0,
+						index_type: hal::IndexType::U32,
+					});
+					encoder.draw_indexed(0..index_buffer.count, 0, 0..instance_count);
+				},
+				None => {
+					encoder.draw(0..self.vertex_buffer.count, 0..instance_count);
+				}
+			}
+		}
+	}
+
+    pub fn destroy(self, device_state : &gfx_helpers::DeviceState) {
+        self.vertex_buffer.destroy(device_state);
+		match self.index_buffer {
+			Some(gpu_buffer) => gpu_buffer.destroy(device_state),
+			None => {},
+		}
+    }
 }

@@ -13,7 +13,7 @@ use hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
 
 extern crate winit;
 
-use ::mesh::GpuBuffer;
+use gpu_buffer::GpuBuffer;
 use ::gfx_helpers;
 use ::glsl_to_spirv;
 
