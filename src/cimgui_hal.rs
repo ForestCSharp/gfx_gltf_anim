@@ -8,8 +8,8 @@ use ::hal;
 use ::back;
 use ::B;
 
-use hal::{Device, Backend, DescriptorPool};
-use hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
+use ::hal::{Device, Backend, DescriptorPool};
+use ::hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
 
 extern crate winit;
 

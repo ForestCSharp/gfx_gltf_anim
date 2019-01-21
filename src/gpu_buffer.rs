@@ -2,14 +2,19 @@ use ::hal;
 use ::B;
 use ::gfx_helpers;
 
-use hal::{Device, Backend};
+use ::hal::{Device, Backend};
+
+//TODO: 2 constructors, 
+// 1. one that uses staging buffer (requires queue group) 
+// 2. and one that doesn't (no queue group argument)
 
 pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
     pub memory : <B as Backend>::Memory,
 	pub usage  : hal::buffer::Usage,
 	pub memory_properties : hal::memory::Properties,
-	pub count  : u32,
+    pub buffer_size : u64,
+    pub count       : u32,
 }
 
 impl GpuBuffer {
@@ -26,9 +31,9 @@ impl GpuBuffer {
 		let upload_memory_properties = if use_staging_buffer { hal::memory::Properties::CPU_VISIBLE } else { memory_properties };
 
 		let buffer_stride = std::mem::size_of::<T>() as u64;
-        let buffer_len = data.len() as u64 * buffer_stride;
+        let buffer_size = data.len() as u64 * buffer_stride;
 		
-		let mut upload_buffer = unsafe { device_state.device.create_buffer(buffer_len, upload_usage).unwrap() };
+		let mut upload_buffer = unsafe { device_state.device.create_buffer(buffer_size, upload_usage).unwrap() };
         let upload_buffer_req = unsafe { device_state.device.get_buffer_requirements(&upload_buffer) };
 
 		let upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &upload_buffer_req, upload_memory_properties);
@@ -46,7 +51,7 @@ impl GpuBuffer {
 
 			let transfer_dst_usage = hal::buffer::Usage::TRANSFER_DST | usage;
 			
-			let mut transfer_dst_buffer = unsafe { device_state.device.create_buffer(buffer_len, transfer_dst_usage).unwrap() };
+			let mut transfer_dst_buffer = unsafe { device_state.device.create_buffer(buffer_size, transfer_dst_usage).unwrap() };
 			let transfer_dst_buffer_req = unsafe { device_state.device.get_buffer_requirements(&transfer_dst_buffer) };
 
 			let transfer_dst_upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &transfer_dst_buffer_req, memory_properties);
@@ -66,7 +71,7 @@ impl GpuBuffer {
                                         &[hal::command::BufferCopy {
                                             src: 0,
                                             dst: 0,
-                                            size: buffer_len,
+                                            size: buffer_size,
                                         }]
                 );
 
@@ -88,6 +93,7 @@ impl GpuBuffer {
                 memory            : transfer_dst_buffer_memory,
                 usage             : transfer_dst_usage,
                 memory_properties : memory_properties,
+                buffer_size       : buffer_size,
                 count             : data.len() as u32,
             };
 		}
@@ -96,8 +102,9 @@ impl GpuBuffer {
 			buffer 			  : upload_buffer,
 			memory 			  : upload_buffer_memory,
 			usage  			  : usage,
-			memory_properties : memory_properties, 
-			count 			  : data.len() as u32,
+			memory_properties : memory_properties,
+            buffer_size       : buffer_size,
+            count             : data.len() as u32,
 		}
 	}
 
@@ -109,7 +116,7 @@ impl GpuBuffer {
 	}
 
 	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
-		if data.len() as u32 > self.count {
+		if ( data.len() * std::mem::size_of::<T>() ) as u64 > self.buffer_size {
 			self.recreate(data, device_state, transfer_queue_group);
 		} else {
 			unsafe {

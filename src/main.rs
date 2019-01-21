@@ -14,10 +14,11 @@ use back::Backend as B;
 
 extern crate gfx_hal as hal;
 
-extern crate num;
+//TODO: switch to shaderc-rs
 extern crate glsl_to_spirv;
+
+extern crate num;
 extern crate winit;
-extern crate gltf;
 extern crate nalgebra_glm as glm;
 extern crate time;
 
@@ -42,9 +43,16 @@ use gfx_helpers::DeviceState;
 mod gltf_loader;
 use gltf_loader::*;
 
+mod compute;
+use compute::ComputeContext;
+
 
 #[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
 fn main() {
+
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Error)
+        .init();
 
 //TODO: Finer-grained unsafe wraps
 unsafe {
@@ -101,7 +109,7 @@ unsafe {
 	};
 
     let mut general_queue_group = gpu.queues.take::<hal::General>(general_queue_family.id()).expect("failed to take graphics queue");
-    let mut compute_queue_group  = gpu.queues.take::<hal::Compute>(compute_queue_family.id()).expect("failed to take compute queue");
+    let mut compute_queue_group = gpu.queues.take::<hal::Compute>(compute_queue_family.id()).expect("failed to take compute queue");
 
     let mut command_pool = device_state.device.create_command_pool_typed::<hal::General>(&general_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
@@ -200,7 +208,7 @@ unsafe {
         ]);
     }
 
-    let create_swapchain = |device_state : &DeviceState, surface: &mut <back::Backend as hal::Backend>::Surface| {
+    let create_swapchain = |device_state : &DeviceState, surface: &mut <B as hal::Backend>::Surface| {
         let (capabilities, formats, _present_modes, _composite_alphas) = surface.compatibility(&device_state.physical_device);
         let new_format = formats.map_or(hal::format::Format::Rgba8Srgb, |formats| {
             formats
@@ -297,7 +305,7 @@ unsafe {
 
     let renderpass = create_renderpass(&device_state, &format, &depth_format);
 
-    let create_framebuffers = |device_state: &DeviceState, backbuffer: hal::Backbuffer<back::Backend>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<back::Backend as hal::Backend>::ImageView, renderpass: &<back::Backend as hal::Backend>::RenderPass| {
+    let create_framebuffers = |device_state: &DeviceState, backbuffer: hal::Backbuffer<B>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<B as hal::Backend>::ImageView, renderpass: &<B as hal::Backend>::RenderPass| {
         match backbuffer {
             hal::Backbuffer::Images(images) => {
                 let pairs = images
@@ -334,7 +342,7 @@ unsafe {
 
     let (mut frame_images, mut framebuffers) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
-    let create_pipeline = |device_state: &DeviceState, renderpass: &<back::Backend as hal::Backend>::RenderPass, set_layout: &<back::Backend as hal::Backend>::DescriptorSetLayout| {
+    let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout| {
         let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
@@ -359,12 +367,12 @@ unsafe {
 
             let pipeline = {
                 let (vs_entry, fs_entry) = (
-                    hal::pso::EntryPoint::<back::Backend> {
+                    hal::pso::EntryPoint::<B> {
                         entry: "main",
                         module: &vs_module,
                         specialization: hal::pso::Specialization::default(),
                     },
-                    hal::pso::EntryPoint::<back::Backend> {
+                    hal::pso::EntryPoint::<B> {
                         entry: "main",
                         module: &fs_module,
                         specialization: hal::pso::Specialization::default(),
@@ -478,6 +486,18 @@ unsafe {
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut general_queue_group, &format, &depth_format);
+
+    //Initialize Compute Context
+    let compute_context = ComputeContext::new(
+        "data/shaders/test.comp", 
+        &[16 * 3200 * 2400], 
+        &device_state, 
+        &mut general_queue_group, 
+        &mut compute_queue_group
+    );
+
+    compute_context.dispatch(&mut compute_queue_group);
+    compute_context.print_data(&device_state);
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 

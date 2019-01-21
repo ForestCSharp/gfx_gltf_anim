@@ -23,6 +23,9 @@ gltf = "0.11.2"
 rand = "0.5.5"
 memoffset = "0.2.1"
 
+log = "0.4.0"
+env_logger = "0.6.0"
+
 gfx-hal = { git = "https://github.com/gfx-rs/gfx.git" }
 
 gfx-backend-vulkan = { git = "https://github.com/gfx-rs/gfx.git", optional = true }
