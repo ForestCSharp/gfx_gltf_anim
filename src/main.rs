@@ -27,6 +27,7 @@ extern crate memoffset;
 
 use std::fs;
 use std::io::{Read};
+use std::collections::HashMap;
 
 use hal::{Instance, Device, PhysicalDevice, DescriptorPool, Surface, Swapchain, QueueFamily};
 
@@ -516,11 +517,11 @@ unsafe {
     //Dispatch Compute Work
     compute_context.dispatch(&mut compute_queue_group);
 
-    for buffer in &compute_context.storage_buffers {
-        for elem in &buffer.get_data::<Pixel>(&device_state) {
-            println!("{:?}", elem);
-        }
-    }
+    // for buffer in &compute_context.storage_buffers {
+    //     for elem in &buffer.get_data::<Pixel>(&device_state) {
+    //         println!("{:?}", elem);
+    //     }
+    // }
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
@@ -533,13 +534,8 @@ unsafe {
     let first_timestamp = timestamp();
     let mut last_time = 0.0f64;
 
-    //TODO: Key Hashmap
-    let mut w_state = false;
-    let mut s_state = false;
-    let mut a_state = false;
-    let mut d_state = false;
-    let mut e_state = false;
-    let mut q_state = false;
+    //Key Hashmap
+    let mut key_states = HashMap::new();
 
     let mut num_frames = 0;
 
@@ -574,13 +570,8 @@ unsafe {
 							Some(keycode) => {
 								cimgui_hal.update_key_state(keycode as usize, input.state == winit::ElementState::Pressed);
 								cimgui_hal.update_modifier_state( input.modifiers.ctrl, input.modifiers.shift, input.modifiers.alt, input.modifiers.logo);
+                                key_states.insert(keycode,input.state == winit::ElementState::Pressed);
 								match keycode {
-									winit::VirtualKeyCode::W   => w_state = input.state == winit::ElementState::Pressed,
-									winit::VirtualKeyCode::S   => s_state = input.state == winit::ElementState::Pressed,
-									winit::VirtualKeyCode::A   => a_state = input.state == winit::ElementState::Pressed,
-									winit::VirtualKeyCode::D   => d_state = input.state == winit::ElementState::Pressed,
-									winit::VirtualKeyCode::E   => e_state = input.state == winit::ElementState::Pressed,
-									winit::VirtualKeyCode::Q   => q_state = input.state == winit::ElementState::Pressed,
 									winit::VirtualKeyCode::F11 => {
 										if input.state == winit::ElementState::Pressed {
 											is_fullscreen = !is_fullscreen;
@@ -642,22 +633,22 @@ unsafe {
         let mut right = 0.0;
         let mut up = 0.0;
 
-        if w_state {
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::W) {
             forward += 1.0;
         }
-        if s_state {
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::S) {
             forward -= 1.0;
         }
-        if d_state { 
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::D) { 
             right += 1.0;
         }
-        if a_state {
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::A) {
             right -= 1.0;
         }
-        if e_state {
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::E) {
             up += 1.0;
         }
-        if q_state {
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::Q) {
             up -= 1.0;
         }
 
