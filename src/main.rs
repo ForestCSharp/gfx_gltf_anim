@@ -487,17 +487,40 @@ unsafe {
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut general_queue_group, &format, &depth_format);
 
+    #[derive(Debug, Clone, Copy, Default)]
+    struct Pixel {
+        r : f32,
+        g : f32,
+        b : f32,
+        a : f32,
+    }
+
+    //Create Compute Buffer
+    let compute_buffer = GpuBuffer::new(
+        &vec![Pixel::default(); 100 * 100 * 100], 
+        hal::buffer::Usage::STORAGE, 
+        hal::memory::Properties::CPU_VISIBLE,
+        &device_state,
+        &mut general_queue_group,
+    );
+
     //Initialize Compute Context
     let compute_context = ComputeContext::new(
-        "data/shaders/test.comp", 
-        &[16 * 3200 * 2400], 
+        "data/shaders/test.comp",
+        [100, 100, 100],
+        vec![compute_buffer],
         &device_state, 
-        &mut general_queue_group, 
         &mut compute_queue_group
     );
 
+    //Dispatch Compute Work
     compute_context.dispatch(&mut compute_queue_group);
-    compute_context.print_data(&device_state);
+
+    for buffer in &compute_context.storage_buffers {
+        for elem in &buffer.get_data::<Pixel>(&device_state) {
+            println!("{:?}", elem);
+        }
+    }
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
@@ -823,7 +846,9 @@ unsafe {
 
     gltf_model.destroy(&device_state);
 
-	cimgui_hal.shutdown(&device_state);
+	cimgui_hal.destroy(&device_state);
+
+    compute_context.destroy(&device_state);
 
     device_state.device.destroy_command_pool(command_pool.into_raw());
 	}

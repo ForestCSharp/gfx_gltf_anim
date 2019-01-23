@@ -4,9 +4,15 @@ use ::gfx_helpers;
 
 use ::hal::{Device, Backend};
 
-//TODO: 2 constructors, 
-// 1. one that uses staging buffer (requires queue group) 
-// 2. and one that doesn't (no queue group argument)
+use std::marker::PhantomData;
+
+//TODO: 2 specializations
+// 1. one that uses staging buffer (requires queue group) [CPU_VISIBLE]
+// 2. and one that doesn't (no queue group argument) [DEVICE LOCAL]
+
+//TODO: Cpu Visible buffers should have a function to access data
+
+//TODO: function that gets/sets data in buffer based on its type information (Vertex,GpuBone,etc.)
 
 pub struct GpuBuffer {
     pub buffer : <B as Backend>::Buffer,
@@ -19,10 +25,10 @@ pub struct GpuBuffer {
 
 impl GpuBuffer {
 
-	pub fn new<T : Copy>(	data : &[T], 
-						 	usage : hal::buffer::Usage, 
-							memory_properties: hal::memory::Properties, 
-							device_state : &gfx_helpers::DeviceState,
+	pub fn new<T: Copy>(	data : &[T],
+                            usage : hal::buffer::Usage, 
+                            memory_properties: hal::memory::Properties, 
+                            device_state : &gfx_helpers::DeviceState,
                             transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) //TODO: make optional
 	-> GpuBuffer {
         
@@ -108,24 +114,39 @@ impl GpuBuffer {
 		}
 	}
 
-	fn recreate<T : Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) {
+	fn recreate<T: Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) {
 		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device_state, transfer_queue_group);
 		self.buffer = new_buffer.buffer;
 		self.memory = new_buffer.memory;
 		self.count  = data.len() as u32;
 	}
 
-	pub fn reupload<T : Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
+	pub fn reupload<T: Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
 		if ( data.len() * std::mem::size_of::<T>() ) as u64 > self.buffer_size {
 			self.recreate(data, device_state, transfer_queue_group);
 		} else {
 			unsafe {
-				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..(self.count as u64 * (std::mem::size_of::<T>() as u64))).unwrap();
-				mapping_writer[0..data.len()].copy_from_slice(&data);
+				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..self.buffer_size).unwrap();
+				mapping_writer.copy_from_slice(&data);
 				device_state.device.release_mapping_writer(mapping_writer).unwrap();
 			}
 		}
 	}
+
+    //TODO: only expose this for CPU-Visible buffers
+    //FIXME: copy to vec is slow, have this function take a closure where you can temporarily access data?
+    pub fn get_data<T: Copy>(&self, device_state : &gfx_helpers::DeviceState) -> Vec<T> {
+        unsafe {
+            let mapping_reader = device_state.device.acquire_mapping_reader::<T>(&self.memory, 0..self.buffer_size)
+                .expect("failed to acquire mapping reader");
+
+            let result = mapping_reader.to_vec();
+
+            device_state.device.release_mapping_reader(mapping_reader);
+
+            result
+		}
+    }
 
     pub fn destroy(self, device_state : &gfx_helpers::DeviceState) {
 		unsafe {

@@ -3,7 +3,7 @@
 use ::B;
 
 use hal;
-use hal::{Device, Backend, DescriptorPool, CommandPool};
+use hal::{Device, Backend, DescriptorPool, CommandPool, WorkGroupCount};
 use gpu_buffer::{GpuBuffer};
 
 use gfx_helpers::DeviceState;
@@ -11,10 +11,17 @@ use gfx_helpers::DeviceState;
 use std::fs;
 use std::io::{Read};
 
+//TODO: Dual-Contouring Compute Test
+//Pass 1. Find and contour vertices (vertex buffer) buffer size = x*y*z
+//Pass 2. Use those vertices to build faces (index buffer)
+//Pass 3. Flatten those two arrays to make it easier when rendering
+
 //Functions for:
 // 1. Setting up context and describing resources
 // 2. Executing compute work
 // 3. Getting value of compute work (waits until finished?)
+
+//TODO: Alternative to fences for multiple compute-passes chained together (semaphores/barriers)
 
 //TODO: copy buffer data into non-cpu-visible working buffer and copy-back to access result
 
@@ -23,12 +30,13 @@ use std::io::{Read};
 //TODO: storage image support?
 
 pub struct ComputeContext {
+    pub shader_module : <B as Backend>::ShaderModule,
     pub pipeline_layout : <B as Backend>::PipelineLayout,
     pub pipeline : <B as Backend>::ComputePipeline,
     pub descriptor_pool : <B as Backend>::DescriptorPool,
     pub descriptor_set_layout : <B as Backend>::DescriptorSetLayout,
     pub descriptor_set : <B as Backend>::DescriptorSet,
-    pub storage_buffers : Vec<GpuBuffer>, //TODO: Way to initialize these with data
+    pub storage_buffers : Vec<GpuBuffer>,
     pub command_pool    : hal::CommandPool<B, hal::Compute>, //TODO: allow hal::General
     pub command_buffer  : hal::command::CommandBuffer<B, hal::Compute, hal::command::MultiShot>, //TODO: allow hal::General
     pub fence           : <B as Backend>::Fence,
@@ -37,14 +45,14 @@ pub struct ComputeContext {
 impl ComputeContext {
 
     pub fn new(
-        shader_path : &str, 
-        buffer_sizes : &[u64], 
-        device_state : &DeviceState, 
-        transfer_queue_group : &mut hal::QueueGroup<B, hal::General>,
+        shader_path : &str,
+        work_group_count : WorkGroupCount,
+        storage_buffers : Vec<GpuBuffer>,
+        device_state : &DeviceState,
         compute_queue_group : &mut hal::QueueGroup<B, hal::Compute>,
         ) -> ComputeContext {
 
-        let compute_module = {
+        let shader_module = {
             let glsl = fs::read_to_string(shader_path).expect("failed to read compute shader code to string");
             let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Compute)
                 .expect("failed to compile compute shader glsl to spirv")
@@ -59,7 +67,7 @@ impl ComputeContext {
         let mut layout_bindings = Vec::new();
 
         //Each Storage buffer gets its own layout binding 
-        for i in 0..buffer_sizes.len() as u32 {
+        for i in 0..storage_buffers.len() as u32 {
             layout_bindings.push(hal::pso::DescriptorSetLayoutBinding {
                 binding            : i as u32,
                 ty                 : hal::pso::DescriptorType::StorageBuffer,
@@ -78,13 +86,13 @@ impl ComputeContext {
             device_state.device.create_pipeline_layout(Some(&descriptor_set_layout), &[]) 
         }.expect("failed to create compute pipeline layout");
 
-        let entry_point = hal::pso::EntryPoint::<B> {
-            entry  : "main",
-            module : &compute_module,
-            specialization : hal::pso::Specialization::default(),
-        };
-
         let pipeline = unsafe {
+            let entry_point = hal::pso::EntryPoint::<B> {
+                entry  : "main",
+                module : &shader_module,
+                specialization : hal::pso::Specialization::default(),
+            };
+
             device_state.device.create_compute_pipeline(
                 &hal::pso::ComputePipelineDesc::new(entry_point, &pipeline_layout),
                 None,
@@ -96,7 +104,7 @@ impl ComputeContext {
                 1,
                 &[hal::pso::DescriptorRangeDesc {
                     ty    : hal::pso::DescriptorType::StorageBuffer,
-                    count : buffer_sizes.len(),
+                    count : storage_buffers.len(),
                 }],
             )
         }.expect("failed to create compute descriptor pool");
@@ -105,28 +113,10 @@ impl ComputeContext {
             descriptor_pool.allocate_set(&descriptor_set_layout)
         }.expect("Failed to allocate compute descriptor set");
 
-        let mut storage_buffers = Vec::new();
-
-        //Create storage buffers
-        for size in buffer_sizes {
-            //Fill storage buffer with blank data
-            let empty_data : Vec<u8> = vec![0; *size as usize];
-
-            storage_buffers.push(
-                GpuBuffer::new(
-                    &empty_data, 
-                    hal::buffer::Usage::STORAGE,
-                    hal::memory::Properties::CPU_VISIBLE, 
-                    device_state, 
-                    transfer_queue_group
-                )
-            );
-        }
-
         unsafe { 
             let mut descriptor_set_writes = Vec::new();
 
-            for i in 0..buffer_sizes.len() {
+            for i in 0..storage_buffers.len() {
                 descriptor_set_writes.push(
                     hal::pso::DescriptorSetWrite {
                         set: &descriptor_set,
@@ -164,16 +154,14 @@ impl ComputeContext {
             command_buffer.begin(false);
             command_buffer.bind_compute_pipeline(&pipeline);
             command_buffer.bind_compute_descriptor_sets(&pipeline_layout, 0, Some(&descriptor_set), &[]);
-            
-            //TODO: Dispatch Count (x,y,z)
-            command_buffer.dispatch([3200/32, 2400/32, 1]);
-
+            command_buffer.dispatch(work_group_count);
             command_buffer.finish();
         }
 
         let mut fence = device_state.device.create_fence(false).expect("failed to create compute fence");
 
         ComputeContext {
+            shader_module         : shader_module,
             pipeline_layout       : pipeline_layout,
             pipeline              : pipeline,
             descriptor_pool       : descriptor_pool,
@@ -187,47 +175,27 @@ impl ComputeContext {
     }
 
     pub fn dispatch(&self, compute_queue_group : &mut hal::QueueGroup<B, hal::Compute>) {
-        
-        //TODO: reset fence
-        
+
+        //TODO: Don't allow dispatch if already dispatched and waiting for result
+
         unsafe {
-            println!("Executing Compute Work");
             compute_queue_group.queues[0].submit_nosemaphores(Some(&self.command_buffer), Some(&self.fence));
         }
-
-        
     }
 
-    pub fn print_data(&self, device_state : &DeviceState) {
+    //TODO: Function that waits for fence and gets data
+
+    pub fn destroy(self, device_state : &DeviceState) {
         unsafe {
-            device_state.device.wait_for_fence(&self.fence, !0).expect("failed to wait for compute fence");
-        }
+            device_state.device.destroy_command_pool(self.command_pool.into_raw());
+            device_state.device.destroy_descriptor_pool(self.descriptor_pool);
+            device_state.device.destroy_descriptor_set_layout(self.descriptor_set_layout);
+            device_state.device.destroy_shader_module(self.shader_module);
+            device_state.device.destroy_fence(self.fence);
+            device_state.device.destroy_pipeline_layout(self.pipeline_layout);
+            device_state.device.destroy_compute_pipeline(self.pipeline);
 
-        for storage_buffer in &self.storage_buffers {
-            unsafe {
-                let mut mapping_reader = device_state.device.acquire_mapping_reader::<Pixel>(&storage_buffer.memory, 0..storage_buffer.buffer_size)
-                    .expect("failed to acquire compute mapping reader");
-
-                let true_count = storage_buffer.count as usize / std::mem::size_of::<Pixel>();
-
-                println!("{}", std::mem::size_of::<Pixel>());
-
-                mapping_reader[0..true_count].into_iter().map(|n| {
-                    println!("{:?}", n);
-                    n
-                }).collect::<Vec<&Pixel>>();
-
-                device_state.device.release_mapping_reader(mapping_reader);
-            }
+            //Buffer we passed in are still considered valid
         }
     }
-}
-
-//TODO: test struct
-#[derive(Debug, Clone, Copy)]
-struct Pixel {
-    r : f32,
-    g : f32,
-    b : f32,
-    a : f32,
 }

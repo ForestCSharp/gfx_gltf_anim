@@ -13,7 +13,7 @@ use ::hal::format::{ AsFormat, Rgba8Unorm as ColorFormat };
 
 extern crate winit;
 
-use ::gpu_buffer::GpuBuffer;
+use ::gpu_buffer::{GpuBuffer};
 use ::gfx_helpers;
 use ::glsl_to_spirv;
 
@@ -370,7 +370,7 @@ impl CimguiHal {
             cmd_buffer.bind_index_buffer(hal::buffer::IndexBufferView {
                 buffer: &self.gfx_data.index_buffer.as_ref().unwrap().buffer,
                 offset: 0,
-                index_type: hal::IndexType::U16, //ImGui currently uses U16 indices
+                index_type: hal::IndexType::U16, //ImGui uses U16 indices
             });
 
 			let viewport = hal::pso::Viewport {
@@ -443,7 +443,7 @@ impl CimguiHal {
 		}
 	}
 
-	pub fn shutdown(self, device_state : &gfx_helpers::DeviceState) {
+	pub fn destroy(self, device_state : &gfx_helpers::DeviceState) {
 		unsafe {
 			igDestroyContext(std::ptr::null_mut());
 		}
