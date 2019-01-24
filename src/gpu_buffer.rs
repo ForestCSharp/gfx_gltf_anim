@@ -133,8 +133,8 @@ impl GpuBuffer {
 		}
 	}
 
-    //TODO: only expose this for CPU-Visible buffers
-    //FIXME: copy to vec is slow, have this function take a closure where you can temporarily access data?
+    //TODO: copy to vec is slow, have this function take a closure where you can temporarily access data?
+    // Above would allow 1. similar to code below for CPU_VISIBLE, 2. Temporary copy to CPU_VISIBLE buffer for non-cpu-visible buffers
     pub fn get_data<T: Copy>(&self, device_state : &gfx_helpers::DeviceState) -> Vec<T> {
         unsafe {
             let mapping_reader = device_state.device.acquire_mapping_reader::<T>(&self.memory, 0..self.buffer_size)

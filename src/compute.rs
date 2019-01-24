@@ -36,7 +36,7 @@ pub struct ComputeContext {
     pub descriptor_pool : <B as Backend>::DescriptorPool,
     pub descriptor_set_layout : <B as Backend>::DescriptorSetLayout,
     pub descriptor_set : <B as Backend>::DescriptorSet,
-    pub storage_buffers : Vec<GpuBuffer>,
+    pub buffers : Vec<GpuBuffer>,
     pub command_pool    : hal::CommandPool<B, hal::Compute>, //TODO: allow hal::General
     pub command_buffer  : hal::command::CommandBuffer<B, hal::Compute, hal::command::MultiShot>, //TODO: allow hal::General
     pub fence           : <B as Backend>::Fence,
@@ -47,7 +47,7 @@ impl ComputeContext {
     pub fn new(
         shader_path : &str,
         work_group_count : WorkGroupCount,
-        storage_buffers : Vec<GpuBuffer>,
+        buffers : Vec<GpuBuffer>,
         device_state : &DeviceState,
         compute_queue_group : &mut hal::QueueGroup<B, hal::Compute>,
         ) -> ComputeContext {
@@ -66,11 +66,19 @@ impl ComputeContext {
 
         let mut layout_bindings = Vec::new();
 
-        //Each Storage buffer gets its own layout binding 
-        for i in 0..storage_buffers.len() as u32 {
+        //Each Storage buffer gets its own layout binding
+        for i in 0..buffers.len() {
+            
+            let buffer_type = match buffers[i].usage {
+                hal::buffer::Usage::STORAGE => hal::pso::DescriptorType::StorageBuffer,
+                hal::buffer::Usage::UNIFORM => hal::pso::DescriptorType::UniformBuffer,
+                _ => panic!("Unsupported Buffer of usage {:?} given to compute context", buffers[i].usage), 
+                //TODO: return Error instead of panic
+            };
+
             layout_bindings.push(hal::pso::DescriptorSetLayoutBinding {
                 binding            : i as u32,
-                ty                 : hal::pso::DescriptorType::StorageBuffer,
+                ty                 : buffer_type,
                 count              : 1,
                 stage_flags        : hal::pso::ShaderStageFlags::COMPUTE,
                 immutable_samplers : false,
@@ -99,12 +107,17 @@ impl ComputeContext {
             )
         }.expect("failed to create compute pipeline");
 
+        //Create descriptor pool with enough space for our storage and uniform buffers
         let mut descriptor_pool = unsafe {
             device_state.device.create_descriptor_pool(
                 1,
                 &[hal::pso::DescriptorRangeDesc {
                     ty    : hal::pso::DescriptorType::StorageBuffer,
-                    count : storage_buffers.len(),
+                    count : buffers.iter().filter(|&b| b.usage == hal::buffer::Usage::STORAGE).count(),
+                },
+                hal::pso::DescriptorRangeDesc {
+                    ty    : hal::pso::DescriptorType::UniformBuffer,
+                    count : buffers.iter().filter(|&b| b.usage == hal::buffer::Usage::UNIFORM).count(),
                 }],
             )
         }.expect("failed to create compute descriptor pool");
@@ -116,14 +129,14 @@ impl ComputeContext {
         unsafe { 
             let mut descriptor_set_writes = Vec::new();
 
-            for i in 0..storage_buffers.len() {
+            for i in 0..buffers.len() {
                 descriptor_set_writes.push(
                     hal::pso::DescriptorSetWrite {
                         set: &descriptor_set,
                         binding : i as u32,
                         array_offset : 0,
                         descriptors: Some(hal::pso::Descriptor::Buffer(
-                            &storage_buffers[i].buffer, 
+                            &buffers[i].buffer, 
                             None..None)
                         ),
                     }
@@ -139,17 +152,7 @@ impl ComputeContext {
 
         let mut command_buffer = command_pool.acquire_command_buffer::<hal::command::MultiShot>();
 
-        unsafe {
-            //TODO: Staging->Working Copy & Working->Staging copy (so we can read results)
-            /*
-                Reqs: 
-                    1. copy_buffer, 
-                    2. transfer to compute barrier 
-                    ... (bind, dispatch) ... 
-                    3. compute to transfer barrier, 
-                    4. coppy buffer 
-            */
-            
+        unsafe {          
             //TODO: allow simultaneous use?
             command_buffer.begin(false);
             command_buffer.bind_compute_pipeline(&pipeline);
@@ -167,7 +170,7 @@ impl ComputeContext {
             descriptor_pool       : descriptor_pool,
             descriptor_set_layout : descriptor_set_layout,
             descriptor_set        : descriptor_set,
-            storage_buffers       : storage_buffers,
+            buffers               : buffers,
             command_pool          : command_pool,
             command_buffer        : command_buffer,
             fence                 : fence,

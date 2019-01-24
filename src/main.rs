@@ -496,20 +496,28 @@ unsafe {
         a : f32,
     }
 
-    //Create Compute Buffer
-    let compute_buffer = GpuBuffer::new(
+    //Create Compute Storage Buffer
+    let compute_storage_buffer = GpuBuffer::new(
         &vec![Pixel::default(); 100 * 100 * 100], 
         hal::buffer::Usage::STORAGE, 
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
-        &mut general_queue_group,
+        &mut general_queue_group
+    );
+
+    let compute_uniform_buffer = GpuBuffer::new(
+        &vec![Pixel {r: 1.0, g: 2.0, b:3.0, a:4.0}],
+        hal::buffer::Usage::UNIFORM,
+        hal::memory::Properties::CPU_VISIBLE,
+        &device_state,
+        &mut general_queue_group
     );
 
     //Initialize Compute Context
     let compute_context = ComputeContext::new(
         "data/shaders/test.comp",
         [100, 100, 100],
-        vec![compute_buffer],
+        vec![compute_storage_buffer, compute_uniform_buffer],
         &device_state, 
         &mut compute_queue_group
     );
@@ -517,11 +525,11 @@ unsafe {
     //Dispatch Compute Work
     compute_context.dispatch(&mut compute_queue_group);
 
-    // for buffer in &compute_context.storage_buffers {
-    //     for elem in &buffer.get_data::<Pixel>(&device_state) {
-    //         println!("{:?}", elem);
-    //     }
-    // }
+    for buffer in &compute_context.buffers {
+        for elem in &buffer.get_data::<Pixel>(&device_state) {
+            println!("{:?}", elem);
+        }
+    }
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
