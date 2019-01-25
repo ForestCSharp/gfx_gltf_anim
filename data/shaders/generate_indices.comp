@@ -1,0 +1,26 @@
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_GOOGLE_include_directive : require
+
+layout(std140, binding = 0) buffer vertices_buffer
+{
+    vec4 vertices[];
+};
+
+layout(std140, binding = 1) buffer indices_buffer 
+{
+    uint indices[];
+};
+
+#define STORAGE_INDEX gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_GlobalInvocationID.z + gl_NumWorkGroups.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x
+
+void main()
+{
+    uint x = gl_GlobalInvocationID.x;
+    uint y = gl_GlobalInvocationID.y;
+    uint z = gl_GlobalInvocationID.z;
+
+    vec4 vertex = vertices[STORAGE_INDEX];
+
+    indices[STORAGE_INDEX] = STORAGE_INDEX;
+}

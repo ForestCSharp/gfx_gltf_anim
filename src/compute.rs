@@ -186,7 +186,12 @@ impl ComputeContext {
         }
     }
 
-    //TODO: Function that waits for fence and gets data
+    pub fn wait_for_completion(&self, device_state : &DeviceState)
+    {
+        unsafe {
+            device_state.device.wait_for_fence(&self.fence, !0).expect("Failed to wait for fence");
+        }
+    }
 
     pub fn destroy(self, device_state : &DeviceState) {
         unsafe {

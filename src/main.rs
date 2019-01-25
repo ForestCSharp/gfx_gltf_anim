@@ -489,16 +489,26 @@ unsafe {
 	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut general_queue_group, &format, &depth_format);
 
     #[derive(Debug, Clone, Copy, Default)]
-    struct Pixel {
-        r : f32,
-        g : f32,
-        b : f32,
-        a : f32,
+    struct Vec4 {
+        x : f32,
+        y : f32,
+        z : f32,
+        w : f32,
     }
 
     //Create Compute Storage Buffer
-    let compute_storage_buffer = GpuBuffer::new(
-        &vec![Pixel::default(); 100 * 100 * 100], 
+    let vertices_buffer = GpuBuffer::new(
+        &vec![Vec4::default(); 100 * 100 * 100], 
+        hal::buffer::Usage::STORAGE, 
+        hal::memory::Properties::CPU_VISIBLE,
+        &device_state,
+        &mut general_queue_group
+    );
+
+    /* -1 is our invalid index */
+    /* 18 possible indices generated per voxel */
+    let indices_buffer = GpuBuffer::new(
+        &vec![-1i32; 100 * 100 * 100 * 18 ], 
         hal::buffer::Usage::STORAGE, 
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
@@ -506,7 +516,7 @@ unsafe {
     );
 
     let compute_uniform_buffer = GpuBuffer::new(
-        &vec![Pixel {r: 1.0, g: 2.0, b:3.0, a:4.0}],
+        &vec![Vec4 {x: 1.0, y: 2.0, z:3.0, w:4.0}],
         hal::buffer::Usage::UNIFORM,
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
@@ -514,22 +524,28 @@ unsafe {
     );
 
     //Initialize Compute Context
-    let compute_context = ComputeContext::new(
-        "data/shaders/test.comp",
+    let mut compute_context_vertices = ComputeContext::new(
+        "data/shaders/generate_vertices.comp",
         [100, 100, 100],
-        vec![compute_storage_buffer, compute_uniform_buffer],
+        vec![vertices_buffer, indices_buffer, compute_uniform_buffer],
         &device_state, 
         &mut compute_queue_group
     );
 
     //Dispatch Compute Work
-    compute_context.dispatch(&mut compute_queue_group);
+    compute_context_vertices.dispatch(&mut compute_queue_group);
+    compute_context_vertices.wait_for_completion(&device_state);
 
-    for buffer in &compute_context.buffers {
-        for elem in &buffer.get_data::<Pixel>(&device_state) {
-            println!("{:?}", elem);
-        }
-    }
+    let vertices_buffer = compute_context_vertices.buffers.remove(0);
+    let indices_buffer = compute_context_vertices.buffers.remove(0);
+
+    // for vert in vertices_buffer.get_data::<Vec4>(&device_state) {
+    //     println!("{:?}", vert);
+    // }
+
+    // for idx in indices_buffer.get_data::<i32>(&device_state).iter().filter(|&&i| i != -1) {
+    //     println!("{:?}", idx);
+    // }
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
@@ -847,7 +863,7 @@ unsafe {
 
 	cimgui_hal.destroy(&device_state);
 
-    compute_context.destroy(&device_state);
+    compute_context_vertices.destroy(&device_state);
 
     device_state.device.destroy_command_pool(command_pool.into_raw());
 	}
