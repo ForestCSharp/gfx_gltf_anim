@@ -547,6 +547,25 @@ unsafe {
     //     println!("{:?}", idx);
     // }
 
+    //FIXME: currently converting this data to gltf_model vertex data for quick testing
+    let vertex_data : Vec<Vertex> = vertices_buffer.get_data::<Vec4>(&device_state).iter().map(|v| Vertex {
+        a_pos : [v.x, v.y, v.z],
+        a_col: [0.0, 0.0, 0.0, 0.0],
+        a_uv:  [0.0, 0.0],
+        a_norm: [0.0, 0.0, 0.0],
+        a_joint_indices: [0.0, 0.0, 0.0, 0.0],
+        a_joint_weights: [0.0, 0.0, 0.0, 0.0],
+    }).collect();
+    //TODO: faster way to flatten data
+    let mut index_data : Vec<u32> = indices_buffer.get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
+
+    if index_data.is_empty() {
+        index_data = [0,0,0].to_vec();
+    }
+
+    let dc_vertex_buffer = GpuBuffer::new(&vertex_data, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, &device_state, &mut general_queue_group);
+    let dc_index_buffer  = GpuBuffer::new(&index_data, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, &device_state, &mut general_queue_group);
+
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
     let mut frame_fence = device_state.device.create_fence(false).unwrap();
@@ -811,6 +830,17 @@ unsafe {
 			);
 
 			gltf_model.record_draw_commands(&mut encoder, 100);
+
+            //FIXME: Dual Contour Testing
+            {
+                encoder.bind_vertex_buffers(0, Some((&dc_vertex_buffer.buffer, 0)));
+				encoder.bind_index_buffer(hal::buffer::IndexBufferView {
+                    buffer: &dc_index_buffer.buffer,
+                    offset: 0,
+                    index_type: hal::IndexType::U32,
+                });
+                encoder.draw_indexed(0..dc_index_buffer.count, 0, 0..1);
+            }
 		}
 
 		cimgui_hal.new_frame(window_width as f32, window_height as f32, delta_time as f32);

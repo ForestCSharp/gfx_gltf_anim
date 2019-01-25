@@ -39,7 +39,8 @@ void main() {
 
     for (int i=0; i<4; ++i)
     {
-        skinMatrix += (a_joint_weights[i] * skeleton.bones[int(a_joint_indices[i])]);
+        skinMatrix[i][i] = 1.0;
+        //skinMatrix += (a_joint_weights[i] * skeleton.bones[int(a_joint_indices[i])]);
     }
 
     //Offset Instances based on gl_InstanceIndex
