@@ -351,12 +351,11 @@ void main()
 
     vec3 voxel_position = vec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
 
-    //Default to non-adaptive
+    //FIXME: Defaulting to non-adaptive ( minecraft-esque )
     vec3 vertex = voxel_position + 0.5;
 
     //TODO: Contouring
 
-    // TODO: Test that vertex is valid (that we're on the surface boundary)
     vertices[STORAGE_INDEX] = vec4(vertex, 1.0);
 
     if (voxel_position.x > 0 + offset.x && voxel_position.y > 0 + offset.y)
@@ -368,9 +367,9 @@ void main()
             indices[STORAGE_INDEX][0] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y - 1, voxel_position.z)));
             indices[STORAGE_INDEX][1] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z)));
             indices[STORAGE_INDEX][2] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][3] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z)));
-            indices[STORAGE_INDEX][4] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][5] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][3] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][4] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][5] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y - 1, voxel_position.z)));
         }
     }
 
@@ -383,9 +382,9 @@ void main()
             indices[STORAGE_INDEX][6]  = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
             indices[STORAGE_INDEX][7]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
             indices[STORAGE_INDEX][8]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][9]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
-            indices[STORAGE_INDEX][10] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][11] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][9] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][10] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][11]  = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
         }
     }
 
@@ -398,9 +397,9 @@ void main()
             indices[STORAGE_INDEX][12] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z - 1)));
             indices[STORAGE_INDEX][13] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
             indices[STORAGE_INDEX][14] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][15] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
-            indices[STORAGE_INDEX][16] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][17] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z)));
+            indices[STORAGE_INDEX][15] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][16] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z)));
+            indices[STORAGE_INDEX][17] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z - 1)));
         }
     }
 }

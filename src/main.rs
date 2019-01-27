@@ -694,6 +694,11 @@ unsafe {
         if let Some(true) = key_states.get(&winit::VirtualKeyCode::Q) {
             up -= 1.0;
         }
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::LShift) {
+            forward *= 10.0;
+            right *= 10.0;
+            up *= 10.0;
+        }
 
         if window_width == 0 || window_height == 0 {
             continue;
@@ -749,8 +754,8 @@ unsafe {
 
         //Rotate cam_forward & cam_up when right mouse pressed using mouse delta
         if mouse_button_states[1] {
-            let yaw_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.0 * 50.0 * delta_time) as f32, &glm::vec3(0.,1.,0.));
-            let pitch_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.1 * 50.0 * delta_time) as f32, &cam_forward.cross(&cam_up));
+            let yaw_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.0 * 100.0 * delta_time) as f32, &glm::vec3(0.,1.,0.));
+            let pitch_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.1 * 100.0 * delta_time) as f32, &cam_forward.cross(&cam_up));
 
             let total_rotation = yaw_rotation * pitch_rotation;
 

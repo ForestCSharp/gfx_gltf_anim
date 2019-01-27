@@ -39,8 +39,13 @@ void main() {
 
     for (int i=0; i<4; ++i)
     {
-        skinMatrix[i][i] = 1.0;
-        //skinMatrix += (a_joint_weights[i] * skeleton.bones[int(a_joint_indices[i])]);
+        skinMatrix += (a_joint_weights[i] * skeleton.bones[int(a_joint_indices[i])]);
+    }
+
+    //Skin matrix is identity if joint weights are all zero
+    if ((abs(a_joint_weights[0] - 0.0)) < 0.000001)
+    {
+        skinMatrix = mat4(1.0);
     }
 
     //Offset Instances based on gl_InstanceIndex
