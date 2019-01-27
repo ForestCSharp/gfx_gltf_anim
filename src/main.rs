@@ -496,9 +496,12 @@ unsafe {
         w : f32,
     }
 
+    let voxel_dimensions : [u32;3] = [100,100,100];
+    let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
+
     //Create Compute Storage Buffer
     let vertices_buffer = GpuBuffer::new(
-        &vec![Vec4::default(); 100 * 100 * 100], 
+        &vec![Vec4::default(); total_voxels], 
         hal::buffer::Usage::STORAGE, 
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
@@ -508,15 +511,19 @@ unsafe {
     /* -1 is our invalid index */
     /* 18 possible indices generated per voxel */
     let indices_buffer = GpuBuffer::new(
-        &vec![-1i32; 100 * 100 * 100 * 18 ], 
+        &vec![-1i32; total_voxels * 18 ], 
         hal::buffer::Usage::STORAGE, 
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
         &mut general_queue_group
     );
 
+    // Dual Contouring Settings
     let compute_uniform_buffer = GpuBuffer::new(
-        &vec![Vec4 {x: 1.0, y: 2.0, z:3.0, w:4.0}],
+        &vec![
+            //Voxel Offset
+            Vec4 {x: 10.0, y: 10.0, z:10.0, w:1.0}
+        ],
         hal::buffer::Usage::UNIFORM,
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
@@ -526,7 +533,7 @@ unsafe {
     //Initialize Compute Context
     let mut compute_context_vertices = ComputeContext::new(
         "data/shaders/generate_vertices.comp",
-        [100, 100, 100],
+        voxel_dimensions,
         vec![vertices_buffer, indices_buffer, compute_uniform_buffer],
         &device_state, 
         &mut compute_queue_group

@@ -252,8 +252,8 @@ layout(std430, binding = 1) buffer indices_buffer
 //TODO: Put offset of this dual-contour space here (as well as any other config vars)
 layout(std140, binding = 2) uniform ComputeUniform 
 {
-    vec4 uniform_value;
-};
+    vec4 offset;
+} settings;
 
 //	Simplex 3D Noise 
 //	by Ian McEwan, Ashima Arts
@@ -330,9 +330,25 @@ float snoise(vec3 v){
                                 dot(p2,x2), dot(p3,x3) ) );
 }
 
+float fbm(in vec3 position, int octaves)
+{
+    float value = 0.0;
+    float amplitude = 0.5;
+    float frequency = 0.0;
+
+    for (int i=0; i < octaves; ++i)
+    {
+        value += amplitude * snoise(position);
+        position *= 2.0; 
+        amplitude *= 0.5;
+    }
+
+    return value;
+}
+
 float distribution_function(vec3 position)
 {
-    return snoise(position / 100.0);
+    return fbm(position / 70.0, 8);
 }
 
 //#define STORAGE_INDEX gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_GlobalInvocationID.z + gl_NumWorkGroups.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x
@@ -346,22 +362,24 @@ uint vertex_index(uvec3 pos)
 
 void main() 
 {
-    //TODO: pass this in uniform
-    vec3 offset = vec3(0,0,0);
+    //FIXME: the switches between world space (for noise) and local space (for indexing) aren't clear/well-documented
 
-    vec3 voxel_position = vec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
+    vec3 offset = settings.offset.xyz;
 
-    //FIXME: Defaulting to non-adaptive ( minecraft-esque )
-    vec3 vertex = voxel_position + 0.5;
+    //local-space voxel position
+    vec3 voxel_position = vec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z) + 0.5;
+
+    //Defaulting to non-adaptive ( minecraft-esque )
+    vec3 vertex_position = voxel_position + offset;
 
     //TODO: Contouring
 
-    vertices[STORAGE_INDEX] = vec4(vertex, 1.0);
+    vertices[STORAGE_INDEX] = vec4(vertex_position, 1.0);
 
-    if (voxel_position.x > 0 + offset.x && voxel_position.y > 0 + offset.y)
+    if (voxel_position.x > 0 && voxel_position.y > 0)
     {
-        bool solid1 = distribution_function(voxel_position) > 0.0;
-        bool solid2 = distribution_function(voxel_position + vec3(0,0,1)) > 0.0;
+        bool solid1 = distribution_function(voxel_position + offset) > 0.0;
+        bool solid2 = distribution_function(voxel_position + offset + vec3(0,0,1)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][0] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y - 1, voxel_position.z)));
@@ -373,25 +391,25 @@ void main()
         }
     }
 
-    if (voxel_position.x > 0 + offset.x && voxel_position.z > 0 + offset.z)
+    if (voxel_position.x > 0 && voxel_position.z > 0)
     {
-        bool solid1 = distribution_function(voxel_position) > 0.0;
-        bool solid2 = distribution_function(voxel_position + vec3(0,1,0)) > 0.0;
+        bool solid1 = distribution_function(voxel_position + offset) > 0.0;
+        bool solid2 = distribution_function(voxel_position + offset + vec3(0,1,0)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][6]  = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
             indices[STORAGE_INDEX][7]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
             indices[STORAGE_INDEX][8]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][9] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
+            indices[STORAGE_INDEX][9]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
             indices[STORAGE_INDEX][10] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][11]  = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
+            indices[STORAGE_INDEX][11] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
         }
     }
 
-    if (voxel_position.y > 0 + offset.y && voxel_position.z > 0 + offset.z)
+    if (voxel_position.y > 0 && voxel_position.z > 0)
     {
-        bool solid1 = distribution_function(voxel_position) > 0.0;
-        bool solid2 = distribution_function(voxel_position + vec3(1,0,0)) > 0.0;
+        bool solid1 = distribution_function(voxel_position + offset) > 0.0;
+        bool solid2 = distribution_function(voxel_position + offset + vec3(1,0,0)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][12] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z - 1)));
