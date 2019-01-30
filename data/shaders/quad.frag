@@ -41,5 +41,5 @@ void main() {
     }
     
     //bypassing above code for now
-    target0 = v_col;
+    target0 = vec4(v_norm, 1.0);
 }

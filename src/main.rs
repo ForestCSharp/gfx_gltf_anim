@@ -496,12 +496,18 @@ unsafe {
         w : f32,
     }
 
+    #[derive(Debug, Clone, Copy, Default)]
+    struct DCVert {
+        position : Vec4,
+        normal   : Vec4,
+    }
+
     let voxel_dimensions : [u32;3] = [100,100,100];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
     //Create Compute Storage Buffer
     let vertices_buffer = GpuBuffer::new(
-        &vec![Vec4::default(); total_voxels], 
+        &vec![DCVert::default(); total_voxels], 
         hal::buffer::Usage::STORAGE, 
         hal::memory::Properties::CPU_VISIBLE,
         &device_state,
@@ -522,7 +528,7 @@ unsafe {
     let compute_uniform_buffer = GpuBuffer::new(
         &vec![
             //Voxel Offset
-            Vec4 {x: 10.0, y: 10.0, z:10.0, w:1.0}
+            Vec4 {x: 5.0, y: 5.0, z:5.0, w:1.0}
         ],
         hal::buffer::Usage::UNIFORM,
         hal::memory::Properties::CPU_VISIBLE,
@@ -558,11 +564,11 @@ unsafe {
     // }
 
     //FIXME: currently converting this data to gltf_model vertex data for quick testing
-    let vertex_data : Vec<Vertex> = vertices_buffer.get_data::<Vec4>(&device_state).iter().map(|v| Vertex {
-        a_pos : [v.x, v.y, v.z],
+    let vertex_data : Vec<Vertex> = vertices_buffer.get_data::<DCVert>(&device_state).iter().map(|v| Vertex {
+        a_pos : [v.position.x, v.position.y, v.position.z],
         a_col: [0.0, 0.0, 0.0, 0.0],
         a_uv:  [0.0, 0.0],
-        a_norm: [0.0, 0.0, 0.0],
+        a_norm: [v.normal.x, v.normal.y, v.normal.z],
         a_joint_indices: [0.0, 0.0, 0.0, 0.0],
         a_joint_weights: [0.0, 0.0, 0.0, 0.0],
     }).collect();

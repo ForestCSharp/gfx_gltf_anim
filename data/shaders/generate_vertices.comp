@@ -239,9 +239,15 @@ float qef_solve(in mat3 ATA, in vec3 ATb, in vec4 pointaccum, out vec3 x)
 
 layout (local_size_x = 1, local_size_y = 1, local_size_z = 1 ) in;
 
+struct Vertex
+{
+    vec4 position;
+    vec4 normal;
+};
+
 layout(std430, binding = 0) buffer vertices_buffer
 {
-    vec4 vertices[];
+    Vertex vertices[];
 };
 
 layout(std430, binding = 1) buffer indices_buffer 
@@ -405,8 +411,8 @@ void main()
         }
     }
 
-    vec3 sign_change_edges[12];
-    int num_sign_change_edges = 0;
+    vec3 points[12];
+    int num_points = 0;
 
     for (int dx=0; dx<2; ++dx)
     {
@@ -414,7 +420,7 @@ void main()
         {
             if ( (corner_density_values[dx][dy][0] > 0) != (corner_density_values[dx][dy][1] > 0) )
             {
-                sign_change_edges[num_sign_change_edges++] = vertex_position + vec3(dx,dy,adapt(corner_density_values[dx][dy][0], corner_density_values[dx][dy][1]));
+                points[num_points++] = vertex_position + vec3(dx,dy,adapt(corner_density_values[dx][dy][0], corner_density_values[dx][dy][1]));
             }
         }
     }
@@ -425,7 +431,7 @@ void main()
         {
             if ( (corner_density_values[dx][0][dz] > 0) != (corner_density_values[dx][1][dz] > 0) )
             {
-                sign_change_edges[num_sign_change_edges++] = vertex_position + vec3(dx,adapt(corner_density_values[dx][0][dz], corner_density_values[dx][1][dz]), dz);
+                points[num_points++] = vertex_position + vec3(dx,adapt(corner_density_values[dx][0][dz], corner_density_values[dx][1][dz]), dz);
             }
         }
     }
@@ -436,15 +442,15 @@ void main()
         {
             if ( (corner_density_values[0][dy][dz] > 0) != (corner_density_values[1][dy][dz] > 0) )
             {
-                sign_change_edges[num_sign_change_edges++] = vertex_position + vec3(adapt(corner_density_values[0][dy][dz], corner_density_values[1][dy][dz]), dy, dz);
+                points[num_points++] = vertex_position + vec3(adapt(corner_density_values[0][dy][dz], corner_density_values[1][dy][dz]), dy, dz);
             }
         }
     }
 
     vec3 normals[12];
-    for (int i=0; i < num_sign_change_edges; ++i)
+    for (int i=0; i < num_points; ++i)
     {
-        normals[i] = distribution_function_normal(sign_change_edges[i], 0.01);
+        normals[i] = distribution_function_normal(points[i], 0.01);
     }
 
     //Solve QEF
@@ -452,18 +458,20 @@ void main()
     mat3 ATA = mat3(0.0);
     vec3 ATb = vec3(0.0);
 
-    for (int i=0; i < num_sign_change_edges; ++i)
+    for (int i=0; i < num_points; ++i)
     {
-        qef_add(normals[i],sign_change_edges[i],ATA,ATb,pointaccum);
+        qef_add(normals[i],points[i],ATA,ATb,pointaccum);
     }
     vec3 center_of_mass = pointaccum.xyz / pointaccum.w;
 
     vec3 qef_result;
-    float error = qef_solve(ATA,ATb,pointaccum,qef_result);
+    //float error = qef_solve(ATA,ATb,pointaccum,qef_result);
     //FIXME: QEF_Solve producing some pretty nasty results 
     //FIXME: (Possibly due to wrong offsets above for loops don't look on either side of voxel)
+    //FIXME: possibly broken "distribution_function_normal"
 
-    vertices[STORAGE_INDEX] = vec4(center_of_mass, 1.0);
+    vertices[STORAGE_INDEX].position = vec4(center_of_mass, 1.0);
+    vertices[STORAGE_INDEX].normal = vec4(distribution_function_normal(center_of_mass,0.01), 1.0);
 
     if (voxel_position.x > 0 && voxel_position.y > 0)
     {
