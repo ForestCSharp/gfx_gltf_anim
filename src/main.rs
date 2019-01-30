@@ -540,8 +540,11 @@ unsafe {
     );
 
     //Dispatch Compute Work
+    println!("Starting Compute Work");
+    let compute_timestamp = timestamp();
     compute_context_vertices.dispatch(&mut compute_queue_group);
     compute_context_vertices.wait_for_completion(&device_state);
+    println!("Ending Compute Work... took {} seconds", timestamp() - compute_timestamp);
 
     let vertices_buffer = compute_context_vertices.buffers.remove(0);
     let indices_buffer = compute_context_vertices.buffers.remove(0);

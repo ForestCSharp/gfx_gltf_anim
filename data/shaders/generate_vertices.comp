@@ -351,11 +351,31 @@ float distribution_function(vec3 position)
     return fbm(position / 70.0, 8);
 }
 
+//TODO: make this a macro so arbitrary functions can have a normal function generated
+vec3 distribution_function_normal(vec3 position, float d)
+{
+    return normalize(vec3(
+        (distribution_function(position + vec3(d,0,0)) - distribution_function(position - vec3(d,0,0))) / 2.0 / d,
+        (distribution_function(position + vec3(0,d,0)) - distribution_function(position - vec3(0,d,0))) / 2.0 / d,
+        (distribution_function(position + vec3(0,0,d)) - distribution_function(position - vec3(0,0,d))) / 2.0 / d
+    ));
+}
+
 //#define STORAGE_INDEX gl_NumWorkGroups.x * gl_NumWorkGroups.y * gl_GlobalInvocationID.z + gl_NumWorkGroups.x * gl_GlobalInvocationID.y + gl_GlobalInvocationID.x
 
 uint vertex_index(uvec3 pos) 
 {
     return gl_NumWorkGroups.x * gl_NumWorkGroups.y * pos.z + gl_NumWorkGroups.x * pos.y + pos.x;
+}
+
+float adapt(float v0, float v1)
+{
+    if ((v0 > 0) != (v1 > 0))
+    {
+        return (0 - v0) / (v1 - v0);
+    }
+
+    return 0.5;
 }
 
 #define STORAGE_INDEX vertex_index(gl_GlobalInvocationID)
@@ -372,14 +392,83 @@ void main()
     //Defaulting to non-adaptive ( minecraft-esque )
     vec3 vertex_position = voxel_position + offset;
 
-    //TODO: Contouring
+    //Evaluate at each corner
+    float corner_density_values[2][2][2];
+    for (int dx=0; dx<2; ++dx)
+    {
+        for (int dy=0; dy<2; ++dy)
+        {
+            for (int dz=0; dz<2; ++dz)
+            {
+                corner_density_values[dx][dy][dz] = distribution_function(vertex_position + vec3(dx,dy,dz));
+            }
+        }
+    }
 
-    vertices[STORAGE_INDEX] = vec4(vertex_position, 1.0);
+    vec3 sign_change_edges[12];
+    int num_sign_change_edges = 0;
+
+    for (int dx=0; dx<2; ++dx)
+    {
+        for (int dy=0; dy<2; ++dy)
+        {
+            if ( (corner_density_values[dx][dy][0] > 0) != (corner_density_values[dx][dy][1] > 0) )
+            {
+                sign_change_edges[num_sign_change_edges++] = vertex_position + vec3(dx,dy,adapt(corner_density_values[dx][dy][0], corner_density_values[dx][dy][1]));
+            }
+        }
+    }
+
+    for (int dx=0; dx<2; ++dx)
+    {
+        for (int dz=0; dz<2; ++dz)
+        {
+            if ( (corner_density_values[dx][0][dz] > 0) != (corner_density_values[dx][1][dz] > 0) )
+            {
+                sign_change_edges[num_sign_change_edges++] = vertex_position + vec3(dx,adapt(corner_density_values[dx][0][dz], corner_density_values[dx][1][dz]), dz);
+            }
+        }
+    }
+
+    for (int dy=0; dy<2; ++dy)
+    {
+        for (int dz=0; dz<2; ++dz)
+        {
+            if ( (corner_density_values[0][dy][dz] > 0) != (corner_density_values[1][dy][dz] > 0) )
+            {
+                sign_change_edges[num_sign_change_edges++] = vertex_position + vec3(adapt(corner_density_values[0][dy][dz], corner_density_values[1][dy][dz]), dy, dz);
+            }
+        }
+    }
+
+    vec3 normals[12];
+    for (int i=0; i < num_sign_change_edges; ++i)
+    {
+        normals[i] = distribution_function_normal(sign_change_edges[i], 0.01);
+    }
+
+    //Solve QEF
+    vec4 pointaccum = vec4(0.0);
+    mat3 ATA = mat3(0.0);
+    vec3 ATb = vec3(0.0);
+
+    for (int i=0; i < num_sign_change_edges; ++i)
+    {
+        qef_add(normals[i],sign_change_edges[i],ATA,ATb,pointaccum);
+    }
+    vec3 center_of_mass = pointaccum.xyz / pointaccum.w;
+
+    vec3 qef_result;
+    float error = qef_solve(ATA,ATb,pointaccum,qef_result);
+    //FIXME: QEF_Solve producing some pretty nasty results 
+    //FIXME: (Possibly due to wrong offsets above for loops don't look on either side of voxel)
+
+    vertices[STORAGE_INDEX] = vec4(center_of_mass, 1.0);
 
     if (voxel_position.x > 0 && voxel_position.y > 0)
     {
-        bool solid1 = distribution_function(voxel_position + offset) > 0.0;
-        bool solid2 = distribution_function(voxel_position + offset + vec3(0,0,1)) > 0.0;
+        bool solid1 = distribution_function(vertex_position) > 0.0;
+        bool solid2 = distribution_function(vertex_position + vec3(0,0,1)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][0] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y - 1, voxel_position.z)));
@@ -393,8 +482,8 @@ void main()
 
     if (voxel_position.x > 0 && voxel_position.z > 0)
     {
-        bool solid1 = distribution_function(voxel_position + offset) > 0.0;
-        bool solid2 = distribution_function(voxel_position + offset + vec3(0,1,0)) > 0.0;
+        bool solid1 = distribution_function(vertex_position) > 0.0;
+        bool solid2 = distribution_function(vertex_position + vec3(0,1,0)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][6]  = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
@@ -408,8 +497,8 @@ void main()
 
     if (voxel_position.y > 0 && voxel_position.z > 0)
     {
-        bool solid1 = distribution_function(voxel_position + offset) > 0.0;
-        bool solid2 = distribution_function(voxel_position + offset + vec3(1,0,0)) > 0.0;
+        bool solid1 = distribution_function(vertex_position) > 0.0;
+        bool solid2 = distribution_function(vertex_position + vec3(1,0,0)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][12] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z - 1)));
