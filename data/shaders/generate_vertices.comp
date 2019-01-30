@@ -354,7 +354,7 @@ float fbm(in vec3 position, int octaves)
 
 float distribution_function(vec3 position)
 {
-    return fbm(position / 70.0, 8);
+    return fbm(position / 70.0, 6);
 }
 
 //TODO: make this a macro so arbitrary functions can have a normal function generated
@@ -465,7 +465,7 @@ void main()
     vec3 center_of_mass = pointaccum.xyz / pointaccum.w;
 
     vec3 qef_result;
-    //float error = qef_solve(ATA,ATb,pointaccum,qef_result);
+    float error = qef_solve(ATA,ATb,pointaccum,qef_result);
     //FIXME: QEF_Solve producing some pretty nasty results 
     //FIXME: (Possibly due to wrong offsets above for loops don't look on either side of voxel)
     //FIXME: possibly broken "distribution_function_normal"

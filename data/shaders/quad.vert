@@ -58,11 +58,9 @@ void main() {
     Translation[3][2] = -1.0 * mod(gl_InstanceIndex,10);
 
     mat4 ModelMatrix = cam.model_matrix * Translation;
-
-    vec3 color = gl_VertexIndex % 3 == 0 ? vec3(1,0,0) : (gl_VertexIndex % 3 == 1 ? vec3(0,1,0) : vec3(0,0,1));
-
+    
     v_pos = (cam.proj_matrix * cam.view_matrix * ModelMatrix * skinMatrix * vec4(a_pos, 1.0));
-    v_col = vec4(color, 1);
+    v_col = a_col;
     v_uv = a_uv;
     v_norm = a_norm;
     gl_Position = v_pos;

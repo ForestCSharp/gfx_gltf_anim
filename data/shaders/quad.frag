@@ -39,7 +39,28 @@ void main() {
         default:
                 col = v_col;
     }
+
+    //Basic Directional Lighting
+    vec4 diffuse = vec4(0.5, 0.0, 0.0, 1.0);
+    vec4 specular = vec4(0.0, 0.0, 0.0, 1.0);
+    float ambient = 0.1;
+    float shininess = 1.0;
+
+    vec3 l_dir = normalize(vec3(-1, -1, 0));
+    vec3 n = normalize(v_norm);
+    vec3 e = normalize(-(cam.view_matrix * cam.model_matrix * v_pos).xyz);
+
+    float intensity = max(dot(n,l_dir), 0.0);
+
+    vec4 spec = vec4(0.0);
+ 
+    if (intensity > 0.0) {
+        // compute the half vector
+        vec3 h = normalize(l_dir + e);  
+        // compute the specular term into spec
+        float intSpec = max(dot(h,n), 0.0);
+        spec = specular * pow(intSpec,shininess);
+    }
     
-    //bypassing above code for now
-    target0 = vec4(v_norm, 1.0);
+    target0 = max(intensity *  diffuse + spec, vec4(diffuse.xyz * ambient, 1.0));
 }
