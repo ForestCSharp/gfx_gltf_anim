@@ -4,8 +4,6 @@ use ::gfx_helpers;
 
 use ::hal::{Device, Backend};
 
-use std::marker::PhantomData;
-
 //TODO: 2 specializations
 // 1. one that uses staging buffer (requires queue group) [CPU_VISIBLE]
 // 2. and one that doesn't (no queue group argument) [DEVICE LOCAL]

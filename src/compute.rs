@@ -3,7 +3,7 @@
 use ::B;
 
 use hal;
-use hal::{Device, Backend, DescriptorPool, CommandPool, WorkGroupCount};
+use hal::{Device, Backend, DescriptorPool, WorkGroupCount};
 use gpu_buffer::{GpuBuffer};
 
 use gfx_helpers::DeviceState;
@@ -161,7 +161,7 @@ impl ComputeContext {
             command_buffer.finish();
         }
 
-        let mut fence = device_state.device.create_fence(false).expect("failed to create compute fence");
+        let fence = device_state.device.create_fence(false).expect("failed to create compute fence");
 
         ComputeContext {
             shader_module         : shader_module,
@@ -189,7 +189,9 @@ impl ComputeContext {
     pub fn wait_for_completion(&self, device_state : &DeviceState)
     {
         unsafe {
+            //TODO: remove expect and handle error another way?
             device_state.device.wait_for_fence(&self.fence, !0).expect("Failed to wait for fence");
+            device_state.device.reset_fence(&self.fence).expect("Failed to reset fence");
         }
     }
 
