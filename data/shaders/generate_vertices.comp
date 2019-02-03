@@ -259,6 +259,7 @@ layout(std430, binding = 1) buffer indices_buffer
 layout(std140, binding = 2) uniform ComputeUniform 
 {
     vec4 offset;
+    float voxel_size;
 } settings;
 
 //	Simplex 3D Noise 
@@ -527,10 +528,10 @@ float distribution_function(vec3 position)
         snoise(position * 0.03) * 7,
         snoise(position * 0.02) * 9);
     
-    float density = -position.y + 5;
+    float density = -position.y - 15;
 
-    density += fbm(position / 70.0, 6) * 5;
-    density += voro_fbm(position / 50.0, 2).y * 40;
+    density += fbm(position / 110.0, 6) * 5;
+    density += voro_fbm(position / 70.0, 2).y * 40;
 
     return density;
 }
@@ -550,6 +551,7 @@ uint vertex_index(uvec3 pos)
     return gl_NumWorkGroups.x * gl_NumWorkGroups.y * pos.z + gl_NumWorkGroups.x * pos.y + pos.x;
 }
 
+//FIXME: why are these "v0" and "v1" are these supposed to be vectors
 float adapt(float v0, float v1)
 {
     if ((v0 > 0) != (v1 > 0))
@@ -567,12 +569,13 @@ void main()
     //FIXME: the switches between world space (for noise) and local space (for indexing) aren't clear/well-documented
 
     vec3 offset = settings.offset.xyz;
+    float voxel_size = settings.voxel_size;
 
     //local-space voxel position
-    vec3 voxel_position = vec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z) + 0.5;
+    vec3 voxel_index = vec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, gl_GlobalInvocationID.z);
 
     //Defaulting to non-adaptive ( minecraft-esque )
-    vec3 vertex_position = voxel_position + offset;
+    vec3 voxel_position = voxel_index * voxel_size + offset;
 
     //Evaluate at each corner
     float corner_density_values[2][2][2];
@@ -582,7 +585,7 @@ void main()
         {
             for (int dz=0; dz<2; ++dz)
             {
-                corner_density_values[dx][dy][dz] = distribution_function(vertex_position + vec3(dx,dy,dz));
+                corner_density_values[dx][dy][dz] = distribution_function(voxel_position + (vec3(dx,dy,dz) * voxel_size));
             }
         }
     }
@@ -596,7 +599,7 @@ void main()
         {
             if ( (corner_density_values[dx][dy][0] > 0) != (corner_density_values[dx][dy][1] > 0) )
             {
-                points[num_points++] = vertex_position + vec3(dx,dy,adapt(corner_density_values[dx][dy][0], corner_density_values[dx][dy][1]));
+                points[num_points++] = voxel_position + vec3(dx,dy,adapt(corner_density_values[dx][dy][0], corner_density_values[dx][dy][1])) * voxel_size;
             }
         }
     }
@@ -607,7 +610,7 @@ void main()
         {
             if ( (corner_density_values[dx][0][dz] > 0) != (corner_density_values[dx][1][dz] > 0) )
             {
-                points[num_points++] = vertex_position + vec3(dx,adapt(corner_density_values[dx][0][dz], corner_density_values[dx][1][dz]), dz);
+                points[num_points++] = voxel_position + vec3(dx,adapt(corner_density_values[dx][0][dz], corner_density_values[dx][1][dz]), dz) * voxel_size;
             }
         }
     }
@@ -618,7 +621,7 @@ void main()
         {
             if ( (corner_density_values[0][dy][dz] > 0) != (corner_density_values[1][dy][dz] > 0) )
             {
-                points[num_points++] = vertex_position + vec3(adapt(corner_density_values[0][dy][dz], corner_density_values[1][dy][dz]), dy, dz);
+                points[num_points++] = voxel_position + vec3(adapt(corner_density_values[0][dy][dz], corner_density_values[1][dy][dz]), dy, dz) * voxel_size;
             }
         }
     }
@@ -639,21 +642,21 @@ void main()
         qef_add(normals[i],points[i],ATA,ATb,pointaccum);
     }
     vec3 center_of_mass = pointaccum.xyz / pointaccum.w;
-    vec3 center_of_mass_normal = distribution_function_normal(center_of_mass,0.01);
+    //vec3 center_of_mass_normal = distribution_function_normal(center_of_mass,0.01);
 
-    // for (int i = 0; i < 50; ++i)
-    // {
-    //     center_of_mass -= center_of_mass_normal * 0.01;
-    //     center_of_mass_normal = distribution_function_normal(center_of_mass, 0.01);
-    // }
+    vec3 qef_result;
+    float error = qef_solve(ATA,ATb,pointaccum,qef_result);
 
-    // vec3 qef_result;
-    // float error = qef_solve(ATA,ATb,pointaccum,qef_result);
+    //FIXME: quick fix for qef results that are way off
+    if (length(qef_result - voxel_position) > voxel_size)
+    {
+        qef_result = center_of_mass;
+    }
+
     //FIXME: QEF_Solve producing some pretty nasty results 
-    //FIXME: (Possibly due to wrong offsets above for loops don't look on either side of voxel)
 
-    vertices[STORAGE_INDEX].position = vec4(center_of_mass, 1.0);
-    vertices[STORAGE_INDEX].normal = vec4(center_of_mass_normal, 1.0);
+    vertices[STORAGE_INDEX].position = vec4(qef_result, 1.0);
+    vertices[STORAGE_INDEX].normal = vec4(distribution_function_normal(qef_result,0.01), 1.0);
 
     //Zero Out Indices
     for (int i = 0; i < 18; ++i)
@@ -661,48 +664,48 @@ void main()
         indices[STORAGE_INDEX][i] = -1;
     }
 
-    if (voxel_position.x > 0 && voxel_position.y > 0)
+    if (voxel_index.x > 0 && voxel_index.y > 0)
     {
-        bool solid1 = distribution_function(vertex_position) > 0.0;
-        bool solid2 = distribution_function(vertex_position + vec3(0,0,1)) > 0.0;
+        bool solid1 = distribution_function(voxel_position) > 0.0;
+        bool solid2 = distribution_function(voxel_position + vec3(0,0,voxel_size)) > 0.0;
         if (solid1 != solid2)
         {
-            indices[STORAGE_INDEX][0] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y - 1, voxel_position.z)));
-            indices[STORAGE_INDEX][1] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z)));
-            indices[STORAGE_INDEX][2] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][3] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][4] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][5] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y - 1, voxel_position.z)));
+            indices[STORAGE_INDEX][0] = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y - 1, voxel_index.z)));
+            indices[STORAGE_INDEX][1] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y - 1, voxel_index.z)));
+            indices[STORAGE_INDEX][2] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][3] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][4] = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][5] = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y - 1, voxel_index.z)));
         }
     }
 
-    if (voxel_position.x > 0 && voxel_position.z > 0)
+    if (voxel_index.x > 0 && voxel_index.z > 0)
     {
-        bool solid1 = distribution_function(vertex_position) > 0.0;
-        bool solid2 = distribution_function(vertex_position + vec3(0,1,0)) > 0.0;
+        bool solid1 = distribution_function(voxel_position) > 0.0;
+        bool solid2 = distribution_function(voxel_position + vec3(0,voxel_size,0)) > 0.0;
         if (solid1 != solid2)
         {
-            indices[STORAGE_INDEX][6]  = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
-            indices[STORAGE_INDEX][7]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
-            indices[STORAGE_INDEX][8]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][9]  = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][10] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][11] = int(vertex_index(uvec3(voxel_position.x - 1, voxel_position.y, voxel_position.z - 1)));
+            indices[STORAGE_INDEX][6]  = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y, voxel_index.z - 1)));
+            indices[STORAGE_INDEX][7]  = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z - 1)));
+            indices[STORAGE_INDEX][8]  = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][9]  = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][10] = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][11] = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y, voxel_index.z - 1)));
         }
     }
 
-    if (voxel_position.y > 0 && voxel_position.z > 0)
+    if (voxel_index.y > 0 && voxel_index.z > 0)
     {
-        bool solid1 = distribution_function(vertex_position) > 0.0;
-        bool solid2 = distribution_function(vertex_position + vec3(1,0,0)) > 0.0;
+        bool solid1 = distribution_function(voxel_position) > 0.0;
+        bool solid2 = distribution_function(voxel_position + vec3(voxel_size,0,0)) > 0.0;
         if (solid1 != solid2)
         {
-            indices[STORAGE_INDEX][12] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z - 1)));
-            indices[STORAGE_INDEX][13] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z - 1)));
-            indices[STORAGE_INDEX][14] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][15] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y, voxel_position.z)));
-            indices[STORAGE_INDEX][16] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z)));
-            indices[STORAGE_INDEX][17] = int(vertex_index(uvec3(voxel_position.x, voxel_position.y - 1, voxel_position.z - 1)));
+            indices[STORAGE_INDEX][12] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y - 1, voxel_index.z - 1)));
+            indices[STORAGE_INDEX][13] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z - 1)));
+            indices[STORAGE_INDEX][14] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][15] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y, voxel_index.z)));
+            indices[STORAGE_INDEX][16] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y - 1, voxel_index.z)));
+            indices[STORAGE_INDEX][17] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y - 1, voxel_index.z - 1)));
         }
     }
 }

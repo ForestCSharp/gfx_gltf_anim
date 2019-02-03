@@ -534,11 +534,13 @@ unsafe {
         &mut general_queue_group
     );
 
+    let voxel_size = 0.5;
+
     // Dual Contouring Settings
     let compute_uniform_buffer = GpuBuffer::new(
         &vec![
             //Voxel Offset
-            Vec4 {x: 0.0, y: 0.0, z:0.0, w:1.0}
+            (Vec4 {x: 0.0, y: 0.0, z:0.0, w:1.0}, voxel_size)
         ],
         hal::buffer::Usage::UNIFORM,
         hal::memory::Properties::CPU_VISIBLE,
@@ -547,7 +549,6 @@ unsafe {
     );
 
     //Initialize Compute Context
-    //TODO: don't need to create a new context inside loop, can reuse
     let mut compute_context_vertices = ComputeContext::new(
         "data/shaders/generate_vertices.comp",
         voxel_dimensions,
@@ -558,31 +559,27 @@ unsafe {
 
     let mut dc_meshes = Vec::new();
 
-    for x in 0..5 {
-        for y in 0..5 {
-            for z in 0..5 {
+    for x in -2..2 {
+        for y in -2..1 {
+            for z in -2..2 {
 
-                //Reset index buffer
-                //FIXME: Zero these out in compute shader
-                //compute_context_vertices.buffers[1].reupload( &vec![-1i32; total_voxels * 18 ], &device_state, &mut general_queue_group);
-
-                //TODO: way to borrow buffers?
-                compute_context_vertices.buffers[2].reupload(&[Vec4 { 
-                    x: (x * (voxel_dimensions[0] - 1)) as f32,
-                    y: (y * (voxel_dimensions[1] - 1)) as f32,
-                    z: (z * (voxel_dimensions[2] - 1)) as f32,
+                compute_context_vertices.buffers[2].reupload(&[(Vec4 { 
+                    x: (x * (voxel_dimensions[0] - 1) as i32) as f32 * voxel_size,
+                    y: (y * (voxel_dimensions[1] - 1) as i32) as f32 * voxel_size,
+                    z: (z * (voxel_dimensions[2] - 1) as i32) as f32 * voxel_size,
                     w: 0.0,
-                    }], 
+                    }, voxel_size)], 
                     &device_state, 
                     &mut general_queue_group
                 );
 
                 //Dispatch Compute Work
-                // println!("Starting Compute Work");
                 let compute_timestamp = timestamp();
                 compute_context_vertices.dispatch(&mut compute_queue_group);
                 compute_context_vertices.wait_for_completion(&device_state);
-                // println!("Ending Compute Work... took {} seconds", timestamp() - compute_timestamp);
+                println!("Compute Work took {} seconds", timestamp() - compute_timestamp);
+
+                //TODO: need to copy this data on the GPU so its not crazy slow
 
                 //FIXME: currently converting this data to gltf_model vertex data for quick testing
                 let vertex_data : Vec<Vertex> = compute_context_vertices.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| Vertex {
@@ -593,12 +590,12 @@ unsafe {
                     a_joint_indices: [0.0, 0.0, 0.0, 0.0],
                     a_joint_weights: [0.0, 0.0, 0.0, 0.0],
                 }).collect();
-                //TODO: faster way to flatten data
+
+                //TODO: faster way to filter data
                 let mut index_data : Vec<u32> = compute_context_vertices.buffers[1].get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
                 if index_data.is_empty() {
                     index_data = [0,0,0].to_vec();
                 }
-
 
                 let dc_vertex_buffer = GpuBuffer::new(&vertex_data, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, &device_state, &mut general_queue_group);
                 let dc_index_buffer  = GpuBuffer::new(&index_data, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, &device_state, &mut general_queue_group);
@@ -610,6 +607,7 @@ unsafe {
         }
     }
 
+    compute_context_vertices.destroy(&device_state);
     println!("Done Generating DC Meshes");
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
@@ -752,7 +750,6 @@ unsafe {
         
         if needs_resize {
             device_state.device.wait_idle().unwrap();
-            println!("Wait Idle Failing");
 
             //Destroy old resources
             for framebuffer in framebuffers {
@@ -883,7 +880,7 @@ unsafe {
 
 			gltf_model.record_draw_commands(&mut encoder, 100);
 
-            //FIXME: Dual Contour Testing
+            //Dual Contour Testing
             for (dc_vertex_buffer, dc_index_buffer) in &dc_meshes {
                 encoder.bind_vertex_buffers(0, Some((&dc_vertex_buffer.buffer, 0)));
 				encoder.bind_index_buffer(hal::buffer::IndexBufferView {
