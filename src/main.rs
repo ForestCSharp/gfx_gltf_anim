@@ -559,9 +559,9 @@ unsafe {
 
     let mut dc_meshes = Vec::new();
 
-    for x in -2..2 {
-        for y in -2..1 {
-            for z in -2..2 {
+    for x in -3..3 {
+        for y in -1..1 {
+            for z in -3..3 {
 
                 compute_context_vertices.buffers[2].reupload(&[(Vec4 { 
                     x: (x * (voxel_dimensions[0] - 1) as i32) as f32 * voxel_size,
@@ -606,6 +606,8 @@ unsafe {
             }
         }
     }
+
+    println!("Total Indices: {}", dc_meshes.iter().fold(0, |acc, (_, idx_buff)| acc + idx_buff.count));
 
     compute_context_vertices.destroy(&device_state);
     println!("Done Generating DC Meshes");

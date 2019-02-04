@@ -10,7 +10,7 @@
 // SVD
 ////////////////////////////////////////////////////////////////////////////////
 
-#define SVD_NUM_SWEEPS 5
+#define SVD_NUM_SWEEPS 6
 
 const float Tiny_Number = 1.e-20;
 
@@ -521,7 +521,7 @@ vec2 voro_fbm(vec3 position, int octaves)
     return value;
 }
 
-float distribution_function(vec3 position)
+float density_function(vec3 position)
 {
     position += vec3(
         snoise(position * 0.04) * 8,
@@ -530,19 +530,19 @@ float distribution_function(vec3 position)
     
     float density = -position.y - 15;
 
-    density += fbm(position / 110.0, 6) * 5;
+    density += fbm(position / 50.0, 4) * 5;
     density += voro_fbm(position / 70.0, 2).y * 40;
 
     return density;
 }
 
 //TODO: make this a macro so arbitrary functions can have a normal function generated
-vec3 distribution_function_normal(vec3 position, float d)
+vec3 density_function_normal(vec3 position, float d)
 {
     return normalize(vec3(
-        (distribution_function(position + vec3(d,0,0)) - distribution_function(position - vec3(d,0,0))),
-        (distribution_function(position + vec3(0,d,0)) - distribution_function(position - vec3(0,d,0))),
-        (distribution_function(position + vec3(0,0,d)) - distribution_function(position - vec3(0,0,d)))
+        (density_function(position + vec3(d,0,0)) - density_function(position - vec3(d,0,0))),
+        (density_function(position + vec3(0,d,0)) - density_function(position - vec3(0,d,0))),
+        (density_function(position + vec3(0,0,d)) - density_function(position - vec3(0,0,d)))
     ));
 }
 
@@ -551,12 +551,11 @@ uint vertex_index(uvec3 pos)
     return gl_NumWorkGroups.x * gl_NumWorkGroups.y * pos.z + gl_NumWorkGroups.x * pos.y + pos.x;
 }
 
-//FIXME: why are these "v0" and "v1" are these supposed to be vectors
-float adapt(float v0, float v1)
+float adapt(float f0, float f1)
 {
-    if ((v0 > 0) != (v1 > 0))
+    if ((f0 > 0) != (f1 > 0))
     {
-        return (0 - v0) / (v1 - v0);
+        return (0 - f0) / (f1 - f0);
     }
 
     return 0.5;
@@ -585,7 +584,7 @@ void main()
         {
             for (int dz=0; dz<2; ++dz)
             {
-                corner_density_values[dx][dy][dz] = distribution_function(voxel_position + (vec3(dx,dy,dz) * voxel_size));
+                corner_density_values[dx][dy][dz] = density_function(voxel_position + (vec3(dx,dy,dz) * voxel_size));
             }
         }
     }
@@ -629,7 +628,7 @@ void main()
     vec3 normals[12];
     for (int i=0; i < num_points; ++i)
     {
-        normals[i] = distribution_function_normal(points[i], 0.01);
+        normals[i] = density_function_normal(points[i], 0.01);
     }
 
     //Solve QEF
@@ -642,7 +641,7 @@ void main()
         qef_add(normals[i],points[i],ATA,ATb,pointaccum);
     }
     vec3 center_of_mass = pointaccum.xyz / pointaccum.w;
-    //vec3 center_of_mass_normal = distribution_function_normal(center_of_mass,0.01);
+    //vec3 center_of_mass_normal = density_function_normal(center_of_mass,0.01);
 
     vec3 qef_result;
     float error = qef_solve(ATA,ATb,pointaccum,qef_result);
@@ -656,7 +655,7 @@ void main()
     //FIXME: QEF_Solve producing some pretty nasty results 
 
     vertices[STORAGE_INDEX].position = vec4(qef_result, 1.0);
-    vertices[STORAGE_INDEX].normal = vec4(distribution_function_normal(qef_result,0.01), 1.0);
+    vertices[STORAGE_INDEX].normal = vec4(density_function_normal(qef_result,0.01), 1.0);
 
     //Zero Out Indices
     for (int i = 0; i < 18; ++i)
@@ -666,8 +665,8 @@ void main()
 
     if (voxel_index.x > 0 && voxel_index.y > 0)
     {
-        bool solid1 = distribution_function(voxel_position) > 0.0;
-        bool solid2 = distribution_function(voxel_position + vec3(0,0,voxel_size)) > 0.0;
+        bool solid1 = density_function(voxel_position) > 0.0;
+        bool solid2 = density_function(voxel_position + vec3(0,0,voxel_size)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][0] = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y - 1, voxel_index.z)));
@@ -681,8 +680,8 @@ void main()
 
     if (voxel_index.x > 0 && voxel_index.z > 0)
     {
-        bool solid1 = distribution_function(voxel_position) > 0.0;
-        bool solid2 = distribution_function(voxel_position + vec3(0,voxel_size,0)) > 0.0;
+        bool solid1 = density_function(voxel_position) > 0.0;
+        bool solid2 = density_function(voxel_position + vec3(0,voxel_size,0)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][6]  = int(vertex_index(uvec3(voxel_index.x - 1, voxel_index.y, voxel_index.z - 1)));
@@ -696,8 +695,8 @@ void main()
 
     if (voxel_index.y > 0 && voxel_index.z > 0)
     {
-        bool solid1 = distribution_function(voxel_position) > 0.0;
-        bool solid2 = distribution_function(voxel_position + vec3(voxel_size,0,0)) > 0.0;
+        bool solid1 = density_function(voxel_position) > 0.0;
+        bool solid2 = density_function(voxel_position + vec3(voxel_size,0,0)) > 0.0;
         if (solid1 != solid2)
         {
             indices[STORAGE_INDEX][12] = int(vertex_index(uvec3(voxel_index.x, voxel_index.y - 1, voxel_index.z - 1)));
