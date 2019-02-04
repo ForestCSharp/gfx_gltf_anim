@@ -647,15 +647,17 @@ void main()
     float error = qef_solve(ATA,ATb,pointaccum,qef_result);
 
     //FIXME: quick fix for qef results that are way off
+    bool bUseCenterOfMass = false;
     if (length(qef_result - voxel_position) > voxel_size)
     {
         qef_result = center_of_mass;
+        bUseCenterOfMass = true;
     }
 
-    //FIXME: QEF_Solve producing some pretty nasty results 
+    //FIXME: QEF_Solve producing some pretty nasty results, debugging below with "sentinel" normal pointing straight down
 
     vertices[STORAGE_INDEX].position = vec4(qef_result, 1.0);
-    vertices[STORAGE_INDEX].normal = vec4(density_function_normal(qef_result,0.01), 1.0);
+    vertices[STORAGE_INDEX].normal = vec4(bUseCenterOfMass ? vec3(0,-1,0) : density_function_normal(qef_result,0.01), 1.0);
 
     //Zero Out Indices
     for (int i = 0; i < 18; ++i)

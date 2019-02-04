@@ -213,7 +213,7 @@ unsafe {
     }
 
     let create_swapchain = |device_state : &DeviceState, surface: &mut <B as hal::Backend>::Surface| {
-        let (capabilities, formats, _present_modes, _composite_alphas) = surface.compatibility(&device_state.physical_device);
+        let (capabilities, formats, _present_modes) = surface.compatibility(&device_state.physical_device);
         let new_format = formats.map_or(hal::format::Format::Rgba8Srgb, |formats| {
             formats
                 .iter()
@@ -560,8 +560,11 @@ unsafe {
     let mut dc_meshes = Vec::new();
 
     for x in -3..3 {
-        for y in -1..1 {
+        for y in 0..1 {
             for z in -3..3 {
+                println!("Beginning Chunk [{},{},{}]", x, y, z);
+                
+                let outer_timestamp = timestamp();
 
                 compute_context_vertices.buffers[2].reupload(&[(Vec4 { 
                     x: (x * (voxel_dimensions[0] - 1) as i32) as f32 * voxel_size,
@@ -577,7 +580,7 @@ unsafe {
                 let compute_timestamp = timestamp();
                 compute_context_vertices.dispatch(&mut compute_queue_group);
                 compute_context_vertices.wait_for_completion(&device_state);
-                println!("Compute Work took {} seconds", timestamp() - compute_timestamp);
+                println!("Dispatch time: {} seconds", timestamp() - compute_timestamp);
 
                 //TODO: need to copy this data on the GPU so its not crazy slow
 
@@ -602,7 +605,7 @@ unsafe {
 
                 dc_meshes.push( (dc_vertex_buffer, dc_index_buffer));
 
-                println!("DC Chunk [{},{},{}] Complete", x, y, z);
+                println!("total time: {} seconds", timestamp() - outer_timestamp);
             }
         }
     }
