@@ -30,7 +30,6 @@ use std::io::{Read};
 //TODO: storage image support?
 
 pub struct ComputeContext {
-    pub shader_module : <B as Backend>::ShaderModule,
     pub pipeline_layout : <B as Backend>::PipelineLayout,
     pub pipeline : <B as Backend>::ComputePipeline,
     pub descriptor_pool : <B as Backend>::DescriptorPool,
@@ -45,30 +44,19 @@ pub struct ComputeContext {
 impl ComputeContext {
 
     pub fn new(
-        shader_path : &str,
+        shader_module : &<B as Backend>::ShaderModule,
         work_group_count : WorkGroupCount,
         buffers : Vec<GpuBuffer>,
         device_state : &DeviceState,
-        compute_queue_group : &mut hal::QueueGroup<B, hal::Compute>,
+        compute_queue_group : &hal::QueueGroup<B, hal::Compute>,
         ) -> ComputeContext {
-
-        let shader_module = {
-            let glsl = fs::read_to_string(shader_path).expect("failed to read compute shader code to string");
-            let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Compute)
-                .expect("failed to compile compute shader glsl to spirv")
-                .bytes()
-                .map(|b| b.expect("failure reading byte in compute shader spirv"))
-                .collect();
-            unsafe {
-                device_state.device.create_shader_module(&spirv).expect("failed to create compute shader module")
-            }
-        };
 
         let mut layout_bindings = Vec::new();
 
         //Each Storage buffer gets its own layout binding
         for i in 0..buffers.len() {
             
+            //FIXME: check that it contains correct usage, not exact match
             let buffer_type = match buffers[i].usage {
                 hal::buffer::Usage::STORAGE => hal::pso::DescriptorType::StorageBuffer,
                 hal::buffer::Usage::UNIFORM => hal::pso::DescriptorType::UniformBuffer,
@@ -164,7 +152,6 @@ impl ComputeContext {
         let fence = device_state.device.create_fence(false).expect("failed to create compute fence");
 
         ComputeContext {
-            shader_module         : shader_module,
             pipeline_layout       : pipeline_layout,
             pipeline              : pipeline,
             descriptor_pool       : descriptor_pool,
@@ -177,12 +164,12 @@ impl ComputeContext {
         }
     }
 
-    pub fn dispatch(&self, compute_queue_group : &mut hal::QueueGroup<B, hal::Compute>) {
+    pub fn dispatch(&self, queue : &mut hal::CommandQueue<B, hal::Compute>) {
 
         //TODO: Don't allow dispatch if already dispatched and waiting for result
 
         unsafe {
-            compute_queue_group.queues[0].submit_nosemaphores(Some(&self.command_buffer), Some(&self.fence));
+            queue.submit_nosemaphores(Some(&self.command_buffer), Some(&self.fence));
         }
     }
 
@@ -200,7 +187,6 @@ impl ComputeContext {
             device_state.device.destroy_command_pool(self.command_pool.into_raw());
             device_state.device.destroy_descriptor_pool(self.descriptor_pool);
             device_state.device.destroy_descriptor_set_layout(self.descriptor_set_layout);
-            device_state.device.destroy_shader_module(self.shader_module);
             device_state.device.destroy_fence(self.fence);
             device_state.device.destroy_pipeline_layout(self.pipeline_layout);
             device_state.device.destroy_compute_pipeline(self.pipeline);

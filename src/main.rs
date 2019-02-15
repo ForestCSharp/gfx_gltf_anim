@@ -22,6 +22,12 @@ extern crate winit;
 extern crate nalgebra_glm as glm;
 extern crate time;
 
+use std::sync::{Arc, Mutex};
+extern crate num_cpus;
+extern crate scoped_threadpool;
+use scoped_threadpool::Pool;
+use std::sync::mpsc::{channel, RecvError};
+
 #[macro_use]
 extern crate memoffset;
 
@@ -107,7 +113,7 @@ unsafe {
                                                 features)
                                                 .expect("failed to create device and queues");
 
-	let mut device_state = DeviceState {
+	let device_state = DeviceState {
 		device : gpu.device,
 		physical_device : adapter.physical_device,
 	};
@@ -230,7 +236,7 @@ unsafe {
     };
 
     //Swapchain
-    let (mut swap_chain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface );
+    let (mut swap_chain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface);
 
     //Depth Buffer Setup
     let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent| {
@@ -496,7 +502,7 @@ unsafe {
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout);
 
 	//initialize cimgui
-	let mut cimgui_hal = CimguiHal::new( &mut device_state, &mut general_queue_group, &format, &depth_format);
+	let mut cimgui_hal = CimguiHal::new( &device_state, &mut general_queue_group, &format, &depth_format);
 
     #[derive(Debug, Clone, Copy, Default)]
     struct Vec4 {
@@ -512,108 +518,114 @@ unsafe {
         normal   : Vec4,
     }
 
-    let voxel_dimensions : [u32;3] = [50,50,50];
+    let voxel_size = 0.5;
+    let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
-    //Create Compute Storage Buffer
-    let vertices_buffer = GpuBuffer::new(
-        &vec![DCVert::default(); total_voxels], 
-        hal::buffer::Usage::STORAGE, 
-        hal::memory::Properties::CPU_VISIBLE,
-        &device_state,
-        &mut general_queue_group
-    );
+    let chunk_dimensions : [i32;3] = [20, 10, 20];
+    let total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
 
-    /* -1 is our invalid index */
-    /* 18 possible indices generated per voxel */
-    let indices_buffer = GpuBuffer::new(
-        &vec![-1i32; total_voxels * 18 ], 
-        hal::buffer::Usage::STORAGE, 
-        hal::memory::Properties::CPU_VISIBLE,
-        &device_state,
-        &mut general_queue_group
-    );
+    //TODO: glsl->spirv->shader module helper function in gfx_helpers
+    let shader_module = {
+        let compute_shader_spirv : Vec<u8> = {
+            let glsl = fs::read_to_string("data/shaders/generate_vertices.comp").expect("failed to read compute shader code to string");
+            glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Compute)
+                .expect("failed to compile compute shader glsl to spirv")
+                .bytes()
+                .map(|b| b.expect("failure reading byte in compute shader spirv"))
+                .collect()
+        };
+        unsafe {
+            device_state.device.create_shader_module(&compute_shader_spirv).expect("failed to create compute shader module")
+        }
+    };
 
-    let voxel_size = 0.5;
-
-    // Dual Contouring Settings
-    let compute_uniform_buffer = GpuBuffer::new(
-        &vec![
-            //Voxel Offset
-            (Vec4 {x: 0.0, y: 0.0, z:0.0, w:1.0}, voxel_size)
-        ],
-        hal::buffer::Usage::UNIFORM,
-        hal::memory::Properties::CPU_VISIBLE,
-        &device_state,
-        &mut general_queue_group
-    );
-
-    //Initialize Compute Context
-    let mut compute_context_vertices = ComputeContext::new(
-        "data/shaders/generate_vertices.comp",
-        voxel_dimensions,
-        vec![vertices_buffer, indices_buffer, compute_uniform_buffer],
-        &device_state, 
-        &mut compute_queue_group
-    );
+    let mut pool = Pool::new((num_cpus::get() - 1) as u32);
 
     let mut dc_meshes = Vec::new();
+    let dc_meshes_mutex = Arc::new(Mutex::new(&mut dc_meshes));
 
-    for x in -3..3 {
-        for y in 0..1 {
-            for z in -3..3 {
-                println!("Beginning Chunk [{},{},{}]", x, y, z);
-                
-                let outer_timestamp = timestamp();
+    pool.scoped(|scoped| {
 
-                compute_context_vertices.buffers[2].reupload(&[(Vec4 { 
-                    x: (x * (voxel_dimensions[0] - 1) as i32) as f32 * voxel_size,
-                    y: (y * (voxel_dimensions[1] - 1) as i32) as f32 * voxel_size,
-                    z: (z * (voxel_dimensions[2] - 1) as i32) as f32 * voxel_size,
-                    w: 0.0,
-                    }, voxel_size)], 
-                    &device_state, 
-                    &mut general_queue_group
-                );
+    let device_state =  Arc::new(&device_state);
+    let compute_queue_group = Arc::new(Mutex::new(&mut compute_queue_group));
 
-                //Dispatch Compute Work
-                let compute_timestamp = timestamp();
-                compute_context_vertices.dispatch(&mut compute_queue_group);
-                compute_context_vertices.wait_for_completion(&device_state);
-                println!("Dispatch time: {} seconds", timestamp() - compute_timestamp);
+    //FIXME: these build async to rendering now, but will stall quitting when trying to close the window
+    for y in -chunk_dimensions[1]..chunk_dimensions[1] {
+        for x in -chunk_dimensions[0]..chunk_dimensions[0] {
+            for z in -chunk_dimensions[2]..chunk_dimensions[2] {
+    
+                let device_state = device_state.clone();
+                let compute_queue_group = compute_queue_group.clone();
+                let dc_meshes_mutex = dc_meshes_mutex.clone();
+                let shader_module = Arc::new(&shader_module);
 
-                //TODO: need to copy this data on the GPU so its not crazy slow
+                scoped.execute(move || {
+                    let vertices_buffer = GpuBuffer::new_cpu_visible(
+                        &vec![DCVert::default(); total_voxels], 
+                        hal::buffer::Usage::STORAGE, 
+                        &device_state
+                    );
 
-                //FIXME: currently converting this data to gltf_model vertex data for quick testing
-                let vertex_data : Vec<Vertex> = compute_context_vertices.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| Vertex {
-                    a_pos : [v.position.x, v.position.y, v.position.z],
-                    a_col: [0.0, 0.0, 0.0, 0.0],
-                    a_uv:  [0.0, 0.0],
-                    a_norm: [v.normal.x, v.normal.y, v.normal.z],
-                    a_joint_indices: [0.0, 0.0, 0.0, 0.0],
-                    a_joint_weights: [0.0, 0.0, 0.0, 0.0],
-                }).collect();
+                    let indices_buffer = GpuBuffer::new_cpu_visible(
+                        &vec![-1i32; total_voxels * 18 ],
+                        hal::buffer::Usage::STORAGE, 
+                        &device_state
+                    );
 
-                //TODO: faster way to filter data
-                let mut index_data : Vec<u32> = compute_context_vertices.buffers[1].get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
-                if index_data.is_empty() {
-                    index_data = [0,0,0].to_vec();
-                }
+                    let uniform_buffer = GpuBuffer::new_cpu_visible(
+                        &vec![
+                            //Voxel Offset
+                            (Vec4 { 
+                                x: (x * (voxel_dimensions[0] - 1) as i32) as f32 * voxel_size,
+                                y: (y * (voxel_dimensions[1] - 1) as i32) as f32 * voxel_size,
+                                z: (z * (voxel_dimensions[2] - 1) as i32) as f32 * voxel_size,
+                                w: 0.0,
+                            },
+                            voxel_size)
+                        ],
+                        hal::buffer::Usage::UNIFORM, 
+                        &device_state
+                    );
 
-                let dc_vertex_buffer = GpuBuffer::new(&vertex_data, hal::buffer::Usage::VERTEX, hal::memory::Properties::CPU_VISIBLE, &device_state, &mut general_queue_group);
-                let dc_index_buffer  = GpuBuffer::new(&index_data, hal::buffer::Usage::INDEX, hal::memory::Properties::CPU_VISIBLE, &device_state, &mut general_queue_group);
+                    let compute_context = ComputeContext::new(
+                        &shader_module,
+                        voxel_dimensions,
+                        vec![vertices_buffer, indices_buffer, uniform_buffer],
+                        &device_state, 
+                        &compute_queue_group.lock().unwrap()
+                    );
 
-                dc_meshes.push( (dc_vertex_buffer, dc_index_buffer));
+                    compute_context.dispatch(&mut compute_queue_group.lock().unwrap().queues[0]);
 
-                println!("total time: {} seconds", timestamp() - outer_timestamp);
+                                    compute_context.wait_for_completion(&device_state);
+
+                    //FIXME: currently converting this data to gltf_model vertex data for quick testing
+                    let vertex_data : Vec<Vertex> = compute_context.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| Vertex {
+                        a_pos : [v.position.x, v.position.y, v.position.z],
+                        a_col: [0.0, 0.0, 0.0, 0.0],
+                        a_uv:  [0.0, 0.0],
+                        a_norm: [v.normal.x, v.normal.y, v.normal.z],
+                        a_joint_indices: [0.0, 0.0, 0.0, 0.0],
+                        a_joint_weights: [0.0, 0.0, 0.0, 0.0],
+                    }).collect();
+
+                    //TODO: faster way to filter data
+                    let mut index_data : Vec<u32> = compute_context.buffers[1].get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
+                    if index_data.is_empty() {
+                        index_data = [0,0,0].to_vec();
+                    }
+
+                    dc_meshes_mutex.lock().unwrap().push(
+                        (GpuBuffer::new_cpu_visible(&vertex_data, hal::buffer::Usage::VERTEX, &device_state),
+                        GpuBuffer::new_cpu_visible(&index_data, hal::buffer::Usage::INDEX, &device_state))
+                    );
+
+                    compute_context.destroy(&device_state);
+                });
             }
         }
     }
-
-    println!("Total Indices: {}", dc_meshes.iter().fold(0, |acc, (_, idx_buff)| acc + idx_buff.count));
-
-    compute_context_vertices.destroy(&device_state);
-    println!("Done Generating DC Meshes");
 
     let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
@@ -636,6 +648,7 @@ unsafe {
 	let mut mouse_pos = [0.0, 0.0];
 	let mut mouse_button_states =  [ false, false, false, false, false];
 	let mut anim_speed : f32 = 1.0;
+    let mut max_terrain_triangles : f32 = 100000000.0;
 
     while running {
         num_frames += 1;
@@ -836,7 +849,7 @@ unsafe {
 		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut general_queue_group);
 
         //Animate Bones
-        gltf_model.animate(0, delta_time *  anim_speed as f64);
+        gltf_model.animate(0, 0, delta_time *  anim_speed as f64);
 
 		//Upload Bones to GPU
 		gltf_model.upload_bones(&device_state, &mut general_queue_group);
@@ -872,6 +885,7 @@ unsafe {
 		cmd_buffer.bind_graphics_pipeline(&pipeline);
 		cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]); //TODO
 
+        let mut dc_mesh_indices = 0;
 		{
 			let mut encoder = cmd_buffer.begin_render_pass_inline(
 				&renderpass,
@@ -886,7 +900,13 @@ unsafe {
 			gltf_model.record_draw_commands(&mut encoder, 100);
 
             //Dual Contour Testing
-            for (dc_vertex_buffer, dc_index_buffer) in &dc_meshes {
+            for (dc_vertex_buffer, dc_index_buffer) in dc_meshes_mutex.lock().unwrap().into_iter() {
+                
+                //Stop Rendering early if we've reached the max value of terrain we'd like to render
+                if dc_mesh_indices / 3 > max_terrain_triangles as u32 {
+                    break;
+                }
+                
                 encoder.bind_vertex_buffers(0, Some((&dc_vertex_buffer.buffer, 0)));
 				encoder.bind_index_buffer(hal::buffer::IndexBufferView {
                     buffer: &dc_index_buffer.buffer,
@@ -894,6 +914,7 @@ unsafe {
                     index_type: hal::IndexType::U32,
                 });
                 encoder.draw_indexed(0..dc_index_buffer.count, 0, 0..1);
+                dc_mesh_indices += dc_index_buffer.count;
             }
 		}
 
@@ -907,6 +928,8 @@ unsafe {
 			igBegin(CString::new("Animation").unwrap().as_ptr(), &mut true, 0);
 			igText(CString::new("Drag the Slider to change anim speed").unwrap().as_ptr());
 			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 15.0f32, std::ptr::null(), 2.0f32);
+            igText(CString::new(format!("Terrain Triangle Count: {}", dc_mesh_indices / 3)).unwrap().as_ptr());
+            igSliderFloat(CString::new("Terrain Triangle Cutoff").unwrap().as_ptr(), &mut max_terrain_triangles, 0.0, 100000000.0, std::ptr::null(), 6.0f32);
 			igEnd();
 
 			igShowDemoWindow(&mut true);
@@ -951,6 +974,8 @@ unsafe {
 	cimgui_hal.destroy(&device_state);
 
     device_state.device.destroy_command_pool(command_pool.into_raw());
+
+    });
 	}
 }
 
@@ -964,8 +989,6 @@ struct CameraUniform {
     model_matrix: [[f32;4];4],
     time: f32,
 }
-
-
 
 fn timestamp() -> f64 {
     let timespec = time::get_time();

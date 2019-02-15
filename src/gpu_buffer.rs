@@ -23,6 +23,40 @@ pub struct GpuBuffer {
 
 impl GpuBuffer {
 
+    //FIXME: new function per usage? 
+    pub fn new_cpu_visible<T: Copy>(    data : &[T],
+                            usage : hal::buffer::Usage, 
+                            device_state : &gfx_helpers::DeviceState )
+    -> GpuBuffer {
+        let memory_properties = hal::memory::Properties::CPU_VISIBLE;
+
+		let buffer_stride = std::mem::size_of::<T>() as u64;
+        let buffer_size = data.len() as u64 * buffer_stride;
+		
+		let mut upload_buffer = unsafe { device_state.device.create_buffer(buffer_size, usage).unwrap() };
+        let upload_buffer_req = unsafe { device_state.device.get_buffer_requirements(&upload_buffer) };
+
+		let upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &upload_buffer_req, memory_properties);
+
+        let upload_buffer_memory = unsafe { device_state.device.allocate_memory(upload_type, upload_buffer_req.size).unwrap() };
+        unsafe { device_state.device.bind_buffer_memory(&upload_buffer_memory, 0, &mut upload_buffer).unwrap() };
+
+        unsafe {
+            let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&upload_buffer_memory, 0..upload_buffer_req.size).unwrap();
+            mapping_writer[0..data.len()].copy_from_slice(&data);
+            device_state.device.release_mapping_writer(mapping_writer).unwrap();
+        }
+
+        GpuBuffer {
+			buffer 			  : upload_buffer,
+			memory 			  : upload_buffer_memory,
+			usage  			  : usage,
+			memory_properties : memory_properties,
+            buffer_size       : buffer_size,
+            count             : data.len() as u32,
+		}
+    }
+
 	pub fn new<T: Copy>(	data : &[T],
                             usage : hal::buffer::Usage, 
                             memory_properties: hal::memory::Properties, 

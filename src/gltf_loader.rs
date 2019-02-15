@@ -334,12 +334,11 @@ impl GltfModel {
 		}
 	}
 
-	//additional arguments: animation to play [DONE], skeleton to target [TODO:]
-	pub fn animate(&mut self, animation_index : usize, delta_time : f64) {
+	pub fn animate(&mut self, skeleton_index: usize, animation_index : usize, delta_time : f64) {
 
 		self.current_anim_time += delta_time;
 
-        for mut skeleton in &mut self.skeletons {
+        if let Some(skeleton) = &mut self.skeletons.get_mut(skeleton_index) {
 
             if self.current_anim_time > self.animations[animation_index].end_time as f64 {
                 self.current_anim_time = self.animations[animation_index].start_time as f64;
@@ -408,7 +407,14 @@ impl GltfModel {
 
 	pub fn record_draw_commands( &self, encoder : &mut hal::command::RenderPassInlineEncoder<B>, instance_count : u32) {
 		for mesh in &self.meshes {
+
             //TODO: bind correct skeleton when rendering mesh
+            if let Some(skeleton_index) = &mesh.skeleton_index {
+                if let Some(skeleton) = &mut self.skeletons.get(*skeleton_index) {
+                    
+                }
+            }
+
 			mesh.record_draw_commands(encoder, instance_count);
 		}
 	}

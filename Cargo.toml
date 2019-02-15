@@ -23,6 +23,10 @@ gltf = "0.11.2"
 rand = "0.5.5"
 memoffset = "0.2.1"
 
+#Parallelism
+scoped_threadpool = "0.1.9"
+num_cpus = "1.10.0"
+
 log = "0.4.0"
 env_logger = "0.6.0"
 
