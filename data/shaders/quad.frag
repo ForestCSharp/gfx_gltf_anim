@@ -1,23 +1,23 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(binding = 0) uniform CameraUniform {
+layout(binding = 0) uniform UniformStruct {
     mat4 view_matrix;
     mat4 proj_matrix;
     mat4 model_matrix;
     float time;
-} cam;
+} ubo;
 
-layout(location = 0) in vec4 v_pos;
-layout(location = 1) in vec4 v_col;
-layout(location = 2) in vec2 v_uv;
-layout(location = 3) in vec3 v_norm;
+layout(location = 0) in vec4 in_pos;
+layout(location = 1) in vec4 in_col;
+layout(location = 2) in vec2 in_uv;
+layout(location = 3) in vec3 in_norm;
 
 layout(location = 0) out vec4 target0;
 
 void main() {
 
-    int int_time = int(cam.time / 2.0); //Divide to slow rate of change
+    int int_time = int(ubo.time / 2.0); //Divide to slow rate of change
     int remainder = int_time % 2; //Gives you 4 options in switch
 
     //Basic Directional Diffuse Lighting
@@ -26,7 +26,7 @@ void main() {
     float shininess = 1.0;
 
     vec3 l = normalize(vec3(-1, -1, 0));
-    vec3 n = normalize(v_norm);
+    vec3 n = normalize(in_norm);
     float intensity = max(dot(n,l), 0.0);
 
     vec4 lighting_color = max(intensity * diffuse, vec4(diffuse.xyz * ambient, 1.0));
@@ -38,10 +38,10 @@ void main() {
                 col = lighting_color;
                 break;
         case 1:
-                col = vec4(v_norm, 1.0);
+                col = vec4(in_norm, 1.0);
                 break;
         default:
-                col = v_col;
+                col = in_col;
     }
 
     target0 = col;

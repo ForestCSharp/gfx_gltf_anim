@@ -162,7 +162,9 @@ unsafe {
                 binding: 0,
                 ty: hal::pso::DescriptorType::UniformBuffer,
                 count: 1,
-                stage_flags: hal::pso::ShaderStageFlags::VERTEX | hal::pso::ShaderStageFlags::FRAGMENT,
+                stage_flags:  hal::pso::ShaderStageFlags::VERTEX
+                            | hal::pso::ShaderStageFlags::DOMAIN 
+                            | hal::pso::ShaderStageFlags::FRAGMENT,
                 immutable_samplers: false
             },
             //Skeleton
@@ -264,8 +266,8 @@ unsafe {
             hal::format::Swizzle::NO,
             hal::image::SubresourceRange {
             aspects: hal::format::Aspects::DEPTH,
-            levels: 0 .. 1,
-            layers: 0 .. 1,
+            levels: 0..1,
+            layers: 0..1,
         },
         ).unwrap();
 
@@ -292,7 +294,7 @@ unsafe {
             samples: 1,
             ops: hal::pass::AttachmentOps::new(hal::pass::AttachmentLoadOp::Clear, hal::pass::AttachmentStoreOp::DontCare),
             stencil_ops: hal::pass::AttachmentOps::DONT_CARE,
-            layouts: hal::image::Layout::Undefined .. hal::image::Layout::DepthStencilAttachmentOptimal,
+            layouts: hal::image::Layout::Undefined..hal::image::Layout::DepthStencilAttachmentOptimal,
         };
 
         let subpass = hal::pass::SubpassDesc {
@@ -365,6 +367,27 @@ unsafe {
                     .collect();
                 device_state.device.create_shader_module(&spirv).unwrap()
             };
+
+            let tesc_module = {
+                let glsl = fs::read_to_string("data/shaders/passthru.tesc").unwrap();
+                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationControl)
+                    .unwrap()
+                    .bytes()
+                    .map(|b| b.unwrap())
+                    .collect();
+                device_state.device.create_shader_module(&spirv).unwrap()
+            };
+
+            let tese_module = {
+                let glsl = fs::read_to_string("data/shaders/passthru.tese").unwrap();
+                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationEvaluation)
+                    .unwrap()
+                    .bytes()
+                    .map(|b| b.unwrap())
+                    .collect();
+                device_state.device.create_shader_module(&spirv).unwrap()
+            };
+
             let fs_module = {
                 let glsl = fs::read_to_string("data/shaders/quad.frag").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Fragment)
@@ -389,10 +412,23 @@ unsafe {
                     },
                 );
 
+                let (tesc_entry, tese_entry) = (
+                    hal::pso::EntryPoint::<B> {
+                        entry: "main",
+                        module: &tesc_module,
+                        specialization: hal::pso::Specialization::default(),
+                    },
+                    hal::pso::EntryPoint::<B> {
+                        entry: "main",
+                        module: &tese_module,
+                        specialization: hal::pso::Specialization::default(),
+                    },
+                );
+
                 let shader_entries = hal::pso::GraphicsShaderSet {
                     vertex: vs_entry,
-                    hull: None,
-                    domain: None,
+                    hull: Some(tesc_entry),
+                    domain: Some(tese_entry),
                     geometry: None,
                     fragment: Some(fs_entry),
                 };
@@ -404,9 +440,9 @@ unsafe {
 
                 let mut pipeline_desc = hal::pso::GraphicsPipelineDesc::new(
                     shader_entries,
-                    hal::Primitive::TriangleList,
+                    hal::Primitive::PatchList(3),
                     hal::pso::Rasterizer {
-                        polygon_mode: hal::pso::PolygonMode::Fill,
+                        polygon_mode: hal::pso::PolygonMode::Line(1.0),
                         cull_face: hal::pso::Face::NONE,
                         front_face: hal::pso::FrontFace::CounterClockwise,
                         depth_clamping: false,
@@ -423,7 +459,7 @@ unsafe {
                 pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
                     binding: 0,
                     stride: std::mem::size_of::<Vertex>() as u32,
-                    rate: 0,
+                    rate: hal::pso::VertexInputRate::Vertex,
                 });
 
                 pipeline_desc.attributes.push(hal::pso::AttributeDesc {
@@ -492,6 +528,8 @@ unsafe {
 
             device_state.device.destroy_shader_module(vs_module);
             device_state.device.destroy_shader_module(fs_module);
+            device_state.device.destroy_shader_module(tesc_module);
+            device_state.device.destroy_shader_module(tese_module);
 
             pipeline.unwrap()
         };
@@ -518,7 +556,7 @@ unsafe {
         normal   : Vec4,
     }
 
-    let voxel_size = 0.5;
+    let voxel_size = 2.0;
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 

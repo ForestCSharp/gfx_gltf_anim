@@ -615,7 +615,7 @@ impl CimguiHal {
                 pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
                     binding: 0,
                     stride: std::mem::size_of::<ImDrawVert>() as u32,
-                    rate: 0,
+                    rate: hal::pso::VertexInputRate::Vertex,
                 });
 
                 pipeline_desc.attributes.push(hal::pso::AttributeDesc {
