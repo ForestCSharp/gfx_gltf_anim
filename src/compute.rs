@@ -182,7 +182,7 @@ impl ComputeContext {
         }
     }
 
-    pub fn destroy(self, device_state : &DeviceState) {
+    pub fn destroy(self, device_state : &DeviceState, destroy_buffers : bool) {
         unsafe {
             device_state.device.destroy_command_pool(self.command_pool.into_raw());
             device_state.device.destroy_descriptor_pool(self.descriptor_pool);
@@ -191,7 +191,11 @@ impl ComputeContext {
             device_state.device.destroy_pipeline_layout(self.pipeline_layout);
             device_state.device.destroy_compute_pipeline(self.pipeline);
 
-            //Buffer we passed in are still considered valid
+            if destroy_buffers {
+                for buffer in self.buffers {
+                    buffer.destroy(device_state);
+                }
+            }
         }
     }
 }

@@ -445,14 +445,14 @@ float density_function(vec3 position)
 
     float fbm_noise = fbm(warped_position / 50.0, 4) * 5;
     
-    float density = 0.0;//-position.y - 15;
+    float density = -position.y - 15;
 
     density += fbm_noise;
-    // density += voro_fbm(vec2(snoise(warped_position * 0.01), snoise(warped_position * 0.009)), 4).x * 20;
+    density += voro_fbm(vec2(snoise(warped_position * 0.01), snoise(warped_position * 0.009)), 4).x * 20;
 
-    // density = opUnion(density, sdBox(position, vec3(10, 10, 10)));//, 1.0));
-    // density = opUnion(density, sdSphere(position + vec3(10, 5, 0), 5));
-    // density = opSubtract(sdSphere(position - vec3(6, 0, 6), 8), density);
+    density = opUnion(density, sdBox(position, vec3(10, 10, 10)));//, 1.0));
+    density = opUnion(density, sdSphere(position + vec3(10, 5, 0), 5));
+    density = opSubtract(sdSphere(position - vec3(6, 0, 6), 8), density);
 
     // if (density > 0.0)
     // {

@@ -560,7 +560,7 @@ unsafe {
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
-    let chunk_dimensions : [i32;3] = [20, 10, 20];
+    let chunk_dimensions : [i32;3] = [35, 2, 35];
     let total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
 
     //TODO: glsl->spirv->shader module helper function in gfx_helpers
@@ -581,7 +581,7 @@ unsafe {
     let mut pool = Pool::new((num_cpus::get() - 1) as u32);
 
     let mut dc_meshes = Vec::new();
-    let dc_meshes_mutex = Arc::new(Mutex::new(&mut dc_meshes));
+    let (tx, rx) = channel();
 
     pool.scoped(|scoped| {
 
@@ -595,7 +595,7 @@ unsafe {
     
                 let device_state = device_state.clone();
                 let compute_queue_group = compute_queue_group.clone();
-                let dc_meshes_mutex = dc_meshes_mutex.clone();
+                let tx = tx.clone();
                 let shader_module = Arc::new(&shader_module);
 
                 scoped.execute(move || {
@@ -636,7 +636,7 @@ unsafe {
 
                     compute_context.dispatch(&mut compute_queue_group.lock().unwrap().queues[0]);
 
-                                    compute_context.wait_for_completion(&device_state);
+                    compute_context.wait_for_completion(&device_state);
 
                     //FIXME: currently converting this data to gltf_model vertex data for quick testing
                     let vertex_data : Vec<Vertex> = compute_context.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| Vertex {
@@ -650,16 +650,14 @@ unsafe {
 
                     //TODO: faster way to filter data
                     let mut index_data : Vec<u32> = compute_context.buffers[1].get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
-                    if index_data.is_empty() {
-                        index_data = [0,0,0].to_vec();
+                    if !index_data.is_empty() {
+                        tx.send(
+                            (GpuBuffer::new_cpu_visible(&vertex_data, hal::buffer::Usage::VERTEX, &device_state),
+                            GpuBuffer::new_cpu_visible(&index_data, hal::buffer::Usage::INDEX, &device_state))
+                        ).expect("failed to send mesh data across channel");
                     }
 
-                    dc_meshes_mutex.lock().unwrap().push(
-                        (GpuBuffer::new_cpu_visible(&vertex_data, hal::buffer::Usage::VERTEX, &device_state),
-                        GpuBuffer::new_cpu_visible(&index_data, hal::buffer::Usage::INDEX, &device_state))
-                    );
-
-                    compute_context.destroy(&device_state);
+                    compute_context.destroy(&device_state, true);
                 });
             }
         }
@@ -937,8 +935,12 @@ unsafe {
 
 			gltf_model.record_draw_commands(&mut encoder, 100);
 
+            while let Ok((dc_vertex_buffer, dc_index_buffer)) = rx.try_recv() {
+                dc_meshes.push((dc_vertex_buffer, dc_index_buffer));
+            }
+
             //Dual Contour Testing
-            for (dc_vertex_buffer, dc_index_buffer) in dc_meshes_mutex.lock().unwrap().into_iter() {
+            for (dc_vertex_buffer, dc_index_buffer) in &dc_meshes {
                 
                 //Stop Rendering early if we've reached the max value of terrain we'd like to render
                 if dc_mesh_indices / 3 > max_terrain_triangles as u32 {
