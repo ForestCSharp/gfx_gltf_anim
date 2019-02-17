@@ -17,7 +17,8 @@ pub struct GpuBuffer {
     pub memory : <B as Backend>::Memory,
 	pub usage  : hal::buffer::Usage,
 	pub memory_properties : hal::memory::Properties,
-    pub buffer_size : u64,
+    pub buffer_reqs : hal::memory::Requirements,
+    pub data_size   : u64,
     pub count       : u32,
 }
 
@@ -30,10 +31,10 @@ impl GpuBuffer {
     -> GpuBuffer {
         let memory_properties = hal::memory::Properties::CPU_VISIBLE;
 
-		let buffer_stride = std::mem::size_of::<T>() as u64;
-        let buffer_size = data.len() as u64 * buffer_stride;
+		let data_stride = std::mem::size_of::<T>() as u64;
+        let data_size = data.len() as u64 * data_stride;
 		
-		let mut upload_buffer = unsafe { device_state.device.create_buffer(buffer_size, usage).unwrap() };
+		let mut upload_buffer = unsafe { device_state.device.create_buffer(data_size, usage).unwrap() };
         let upload_buffer_req = unsafe { device_state.device.get_buffer_requirements(&upload_buffer) };
 
 		let upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &upload_buffer_req, memory_properties);
@@ -52,7 +53,8 @@ impl GpuBuffer {
 			memory 			  : upload_buffer_memory,
 			usage  			  : usage,
 			memory_properties : memory_properties,
-            buffer_size       : buffer_size,
+            buffer_reqs       : upload_buffer_req,
+            data_size         : data_size,
             count             : data.len() as u32,
 		}
     }
@@ -68,10 +70,10 @@ impl GpuBuffer {
 		let upload_usage = if use_staging_buffer { hal::buffer::Usage::TRANSFER_SRC } else { usage };
 		let upload_memory_properties = if use_staging_buffer { hal::memory::Properties::CPU_VISIBLE } else { memory_properties };
 
-		let buffer_stride = std::mem::size_of::<T>() as u64;
-        let buffer_size = data.len() as u64 * buffer_stride;
+		let data_stride = std::mem::size_of::<T>() as u64;
+        let data_size = data.len() as u64 * data_stride;
 		
-		let mut upload_buffer = unsafe { device_state.device.create_buffer(buffer_size, upload_usage).unwrap() };
+		let mut upload_buffer = unsafe { device_state.device.create_buffer(data_size, upload_usage).unwrap() };
         let upload_buffer_req = unsafe { device_state.device.get_buffer_requirements(&upload_buffer) };
 
 		let upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &upload_buffer_req, upload_memory_properties);
@@ -89,7 +91,7 @@ impl GpuBuffer {
 
 			let transfer_dst_usage = hal::buffer::Usage::TRANSFER_DST | usage;
 			
-			let mut transfer_dst_buffer = unsafe { device_state.device.create_buffer(buffer_size, transfer_dst_usage).unwrap() };
+			let mut transfer_dst_buffer = unsafe { device_state.device.create_buffer(data_size, transfer_dst_usage).unwrap() };
 			let transfer_dst_buffer_req = unsafe { device_state.device.get_buffer_requirements(&transfer_dst_buffer) };
 
 			let transfer_dst_upload_type = gfx_helpers::get_memory_type(&device_state.physical_device, &transfer_dst_buffer_req, memory_properties);
@@ -109,7 +111,7 @@ impl GpuBuffer {
                                         &[hal::command::BufferCopy {
                                             src: 0,
                                             dst: 0,
-                                            size: buffer_size,
+                                            size: data_size,
                                         }]
                 );
 
@@ -131,7 +133,8 @@ impl GpuBuffer {
                 memory            : transfer_dst_buffer_memory,
                 usage             : transfer_dst_usage,
                 memory_properties : memory_properties,
-                buffer_size       : buffer_size,
+                buffer_reqs       : transfer_dst_buffer_req,
+                data_size         : data_size,
                 count             : data.len() as u32,
             };
 		}
@@ -141,24 +144,24 @@ impl GpuBuffer {
 			memory 			  : upload_buffer_memory,
 			usage  			  : usage,
 			memory_properties : memory_properties,
-            buffer_size       : buffer_size,
+            buffer_reqs       : upload_buffer_req,
+            data_size         : data_size,
             count             : data.len() as u32,
 		}
 	}
 
 	fn recreate<T: Copy>(&mut self, data : &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) {
-		let new_buffer = GpuBuffer::new(data, self.usage, self.memory_properties, device_state, transfer_queue_group);
-		self.buffer = new_buffer.buffer;
-		self.memory = new_buffer.memory;
-		self.count  = data.len() as u32;
+		*self = GpuBuffer::new(data, self.usage, self.memory_properties, device_state, transfer_queue_group);
 	}
 
-	pub fn reupload<T: Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
-		if ( data.len() * std::mem::size_of::<T>() ) as u64 != self.buffer_size {
+    //TODO: don't recreate buffer if there's enough space (new data is smaller than old data)
+	pub fn reupload<T: Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {		
+        if ( data.len() * std::mem::size_of::<T>() ) as u64 != self.data_size {
 			self.recreate(data, device_state, transfer_queue_group);
+            println!("Recreating Buffer");
 		} else {
 			unsafe {
-				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..self.buffer_size).unwrap();
+				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..self.buffer_reqs.size).unwrap();
 				mapping_writer[0..data.len()].copy_from_slice(&data);
 				device_state.device.release_mapping_writer(mapping_writer).unwrap();
 			}
@@ -169,7 +172,7 @@ impl GpuBuffer {
     // Above would allow 1. similar to code below for CPU_VISIBLE, 2. Temporary copy to CPU_VISIBLE buffer for non-cpu-visible buffers
     pub fn get_data<T: Copy>(&self, device_state : &gfx_helpers::DeviceState) -> Vec<T> {
         unsafe {
-            let mapping_reader = device_state.device.acquire_mapping_reader::<T>(&self.memory, 0..self.buffer_size)
+            let mapping_reader = device_state.device.acquire_mapping_reader::<T>(&self.memory, 0..self.buffer_reqs.size)
                 .expect("failed to acquire mapping reader");
 
             let result = mapping_reader.to_vec();

@@ -100,6 +100,7 @@ unsafe {
 	let general_queue_family = adapter.queue_families.iter().find(|family| 
         family.supports_graphics()
         && family.supports_transfer()
+        && surface.supports_queue_family(family)
     ).expect("Failed to find Graphics Queue");
 
     //FIXME: fallback to graphics_queue_family (general queues) if these can't be found
