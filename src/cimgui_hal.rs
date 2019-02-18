@@ -527,7 +527,7 @@ impl CimguiHal {
 
 			let subpass = hal::pass::SubpassDesc {
 				colors: &[(0, hal::image::Layout::ColorAttachmentOptimal)],
-				depth_stencil: None,
+				depth_stencil: Some(&(1, hal::image::Layout::DepthStencilAttachmentOptimal)),
 				inputs: &[],
 				resolves: &[],
 				preserves: &[],
