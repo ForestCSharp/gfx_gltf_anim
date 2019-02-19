@@ -979,7 +979,7 @@ unsafe {
             igText(CString::new(format!("Terrain Triangle Count: {}", dc_mesh_indices / 3)).unwrap().as_ptr());
             igSliderFloat(CString::new("Terrain Triangle Cutoff").unwrap().as_ptr(), &mut max_terrain_triangles, 0.0, 100000000.0, std::ptr::null(), 6.0f32);
 			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut camera_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
-            igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 16.0, std::ptr::null(), 1.0f32);
+            igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
             igEnd();
 
 			igShowDemoWindow(&mut true);
