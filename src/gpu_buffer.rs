@@ -158,7 +158,6 @@ impl GpuBuffer {
 	pub fn reupload<T: Copy>(&mut self, data: &[T], device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {		
         if ( data.len() * std::mem::size_of::<T>() ) as u64 != self.data_size {
 			self.recreate(data, device_state, transfer_queue_group);
-            println!("Recreating Buffer");
 		} else {
 			unsafe {
 				let mut mapping_writer = device_state.device.acquire_mapping_writer::<T>(&self.memory, 0..self.buffer_reqs.size).unwrap();

@@ -140,11 +140,13 @@ unsafe {
         10000.0
     );
 
-    let mut camera_uniform_struct = CameraUniform {
+    let mut camera_uniform_struct = UniformStruct {
         view_matrix: view_matrix.into(),
         proj_matrix: perspective_matrix.into(),
         model_matrix: glm::Mat4::identity().into(),
         time: 0.0,
+        pn_triangles_strength: 0.0,
+        tess_level: 1.0,
     };
 
     //Uniform Buffer Setup
@@ -164,6 +166,7 @@ unsafe {
                 ty: hal::pso::DescriptorType::UniformBuffer,
                 count: 1,
                 stage_flags:  hal::pso::ShaderStageFlags::VERTEX
+                            | hal::pso::ShaderStageFlags::HULL
                             | hal::pso::ShaderStageFlags::DOMAIN 
                             | hal::pso::ShaderStageFlags::FRAGMENT,
                 immutable_samplers: false
@@ -275,7 +278,7 @@ unsafe {
         (depth_view, depth_image, depth_memory, depth_format)
     };
 
-    let (mut depth_view, mut _depth_image, mut _depth_memory, mut depth_format) = create_depth_buffer(&device_state, &extent);
+    let (mut depth_view, mut depth_image, mut depth_memory, mut depth_format) = create_depth_buffer(&device_state, &extent);
 
     //Renderpass
     let create_renderpass = |device_state: &DeviceState, format : &hal::format::Format, depth_format: &hal::format::Format| {
@@ -370,7 +373,7 @@ unsafe {
             };
 
             let tesc_module = {
-                let glsl = fs::read_to_string("data/shaders/passthru.tesc").unwrap();
+                let glsl = fs::read_to_string("data/shaders/pntriangles.tesc").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationControl)
                     .unwrap()
                     .bytes()
@@ -380,7 +383,7 @@ unsafe {
             };
 
             let tese_module = {
-                let glsl = fs::read_to_string("data/shaders/passthru.tese").unwrap();
+                let glsl = fs::read_to_string("data/shaders/pntriangles.tese").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationEvaluation)
                     .unwrap()
                     .bytes()
@@ -557,11 +560,11 @@ unsafe {
         normal   : Vec4,
     }
 
-    let voxel_size = 2.0;
+    let voxel_size = 8.0;
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
-    let chunk_dimensions : [i32;3] = [35, 2, 35];
+    let chunk_dimensions : [i32;3] = [12, 2, 12];
     let total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
 
     //TODO: glsl->spirv->shader module helper function in gfx_helpers
@@ -794,9 +797,9 @@ unsafe {
             up -= 1.0;
         }
         if let Some(true) = key_states.get(&winit::VirtualKeyCode::LShift) {
-            forward *= 10.0;
-            right *= 10.0;
-            up *= 10.0;
+            forward *= 50.0;
+            right *= 50.0;
+            up *= 50.0;
         }
 
         if window_width == 0 || window_height == 0 {
@@ -815,6 +818,10 @@ unsafe {
                 device_state.device.destroy_image_view(rtv);
             }
 
+            device_state.device.destroy_image_view(depth_view);
+            device_state.device.destroy_image(depth_image);
+            device_state.device.free_memory(depth_memory);
+
             device_state.device.destroy_swapchain(swap_chain);
 
             //Build new resources         
@@ -826,8 +833,8 @@ unsafe {
 
             let (new_depth_view, new_depth_image, new_depth_memory, new_depth_format) = create_depth_buffer(&device_state, &extent);
             depth_view = new_depth_view;
-            _depth_image = new_depth_image;
-            _depth_memory = new_depth_memory;
+            depth_image = new_depth_image;
+            depth_memory = new_depth_memory;
             depth_format = new_depth_format;
 
             let (new_frame_images, new_framebuffers) = create_framebuffers(&device_state, new_backbuffer, &format, &extent, &depth_view, &renderpass);
@@ -971,7 +978,9 @@ unsafe {
 			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 15.0f32, std::ptr::null(), 2.0f32);
             igText(CString::new(format!("Terrain Triangle Count: {}", dc_mesh_indices / 3)).unwrap().as_ptr());
             igSliderFloat(CString::new("Terrain Triangle Cutoff").unwrap().as_ptr(), &mut max_terrain_triangles, 0.0, 100000000.0, std::ptr::null(), 6.0f32);
-			igEnd();
+			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut camera_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
+            igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 16.0, std::ptr::null(), 1.0f32);
+            igEnd();
 
 			igShowDemoWindow(&mut true);
 		}
@@ -1016,7 +1025,33 @@ unsafe {
 
     device_state.device.destroy_command_pool(command_pool.into_raw());
 
+    device_state.device.destroy_descriptor_pool(desc_pool);
+    device_state.device.destroy_descriptor_set_layout(set_layout);
+    device_state.device.destroy_render_pass(renderpass);
+    device_state.device.destroy_graphics_pipeline(pipeline);
+    device_state.device.destroy_pipeline_layout(pipeline_layout);
+
+    //Destroy old resources
+    for framebuffer in framebuffers {
+        device_state.device.destroy_framebuffer(framebuffer);
+    }
+
+    for (_, rtv) in frame_images {
+        device_state.device.destroy_image_view(rtv);
+    }
+
+    device_state.device.destroy_swapchain(swap_chain);
+
     });
+
+    //Compute Shader Module
+    device_state.device.destroy_shader_module(shader_module);
+
+    for (vertex_buffer, index_buffer) in dc_meshes {
+        vertex_buffer.destroy(&device_state);
+        index_buffer.destroy(&device_state);
+    }
+    
 	}
 }
 
@@ -1024,11 +1059,13 @@ unsafe {
 const DIMS: hal::window::Extent2D = hal::window::Extent2D { width: 1280, height: 720 };
 
 #[derive(Debug, Clone, Copy)]
-struct CameraUniform {
+struct UniformStruct {
     view_matrix:  [[f32;4];4],
     proj_matrix:  [[f32;4];4],
     model_matrix: [[f32;4];4],
     time: f32,
+    pn_triangles_strength : f32,
+    tess_level : f32,
 }
 
 fn timestamp() -> f64 {

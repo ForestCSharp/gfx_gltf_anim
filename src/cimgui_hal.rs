@@ -5,7 +5,6 @@ use std::fs;
 use std::io::{Read};
 
 use ::hal;
-use ::back;
 use ::B;
 
 use ::hal::{Device, Backend, DescriptorPool};
@@ -195,6 +194,8 @@ impl CimguiHal {
         	device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
 			device.destroy_command_pool(command_pool.into_raw());
+            device.destroy_buffer(font_image_upload_buffer);
+            device.free_memory(font_image_upload_memory);
 
 			//Write our font data to our descriptor set
 			device.write_descriptor_sets( vec![
@@ -348,8 +349,6 @@ impl CimguiHal {
 			if in_vertices.is_empty() || in_indices.is_empty() {
 				return;
 			}
-
-			//TODO: Make below buffers Device Local after staging buffer is implemented
 
 			if self.gfx_data.vertex_buffer.is_some() {
 				self.gfx_data.vertex_buffer.as_mut().unwrap().reupload(&in_vertices, device_state, transfer_queue_group);

@@ -22,8 +22,6 @@ void main()
     gl_TessLevelOuter[1] = 2.0;
     gl_TessLevelOuter[2] = 2.0;
   }
-
-  gl_out[gl_InvocationID].gl_Position = gl_in[gl_InvocationID].gl_Position;
   
   out_pos[gl_InvocationID] = in_pos[gl_InvocationID];
   out_col[gl_InvocationID] = in_col[gl_InvocationID];
