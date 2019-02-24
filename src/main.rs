@@ -596,6 +596,7 @@ unsafe {
     let compute_queue_group = Arc::new(Mutex::new(&mut compute_queue_group));
 
     //FIXME: these build async to rendering now, but will stall quitting when trying to close the window
+    //FIXME: There's one final pass in the current density function that seemingly generates duplicate data
     for y in -chunk_dimensions[1]..chunk_dimensions[1] {
         for x in -chunk_dimensions[0]..chunk_dimensions[0] {
             for z in -chunk_dimensions[2]..chunk_dimensions[2] {
@@ -626,7 +627,7 @@ unsafe {
                                 x: (x * (voxel_dimensions[0] - 1) as i32) as f32 * voxel_size,
                                 y: (y * (voxel_dimensions[1] - 1) as i32) as f32 * voxel_size,
                                 z: (z * (voxel_dimensions[2] - 1) as i32) as f32 * voxel_size,
-                                w: 0.0,
+                                w: 1.0,
                             },
                             voxel_size)
                         ],
