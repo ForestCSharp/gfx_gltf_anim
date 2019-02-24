@@ -437,6 +437,7 @@ pub struct Skeleton {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct GpuBone {
     pub joint_matrix: [[f32;4];4],
 }
@@ -527,6 +528,7 @@ pub fn compute_global_transform(index: usize, nodes: &Vec<Node>) -> glm::Mat4 {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct Vertex {
     pub a_pos: [f32; 3],
     pub a_col: [f32; 4],

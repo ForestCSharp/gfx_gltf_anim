@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 extern crate num_cpus;
 extern crate scoped_threadpool;
 use scoped_threadpool::Pool;
-use std::sync::mpsc::{channel, RecvError};
+use std::sync::mpsc::channel;
 
 #[macro_use]
 extern crate memoffset;
@@ -75,7 +75,7 @@ unsafe {
     let mut events_loop = winit::EventsLoop::new();
 
     //Create a window, gfx instance, surface, and enumerate our adapters (GPUs)
-    let (_window, _instance, mut adapters, mut surface) = {
+    let (window, _instance, mut adapters, mut surface) = {
         let window = window_builder.build(&events_loop).unwrap();
         let instance = back::Instance::create("gfx gltf anim", 1);
         let surface = instance.create_surface(&window);
@@ -136,8 +136,8 @@ unsafe {
     let perspective_matrix = glm::perspective(
         DIMS.width as f32 / DIMS.height as f32,
         degrees_to_radians(90.0f32),
-        0.001,
-        10000.0
+        0.01,
+        100000.0
     );
 
     let mut camera_uniform_struct = UniformStruct {
@@ -242,7 +242,7 @@ unsafe {
     };
 
     //Swapchain
-    let (mut swap_chain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface);
+    let (mut swapchain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface);
 
     //Depth Buffer Setup
     let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent| {
@@ -358,7 +358,7 @@ unsafe {
 
     let (mut frame_images, mut framebuffers) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
-    let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout| {
+    let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout, use_wireframe : bool| {
         let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
@@ -446,7 +446,7 @@ unsafe {
                     shader_entries,
                     hal::Primitive::PatchList(3),
                     hal::pso::Rasterizer {
-                        polygon_mode: hal::pso::PolygonMode::Line(1.0),
+                        polygon_mode: if use_wireframe { hal::pso::PolygonMode::Line(1.0) } else { hal::pso::PolygonMode::Fill },
                         cull_face: hal::pso::Face::NONE,
                         front_face: hal::pso::FrontFace::CounterClockwise,
                         depth_clamping: false,
@@ -541,12 +541,14 @@ unsafe {
         (new_pipeline, new_pipeline_layout)
     };
 
-    let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout);
+    let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false);
+    let (wireframe_pipeline, wireframe_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true);
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &device_state, &mut general_queue_group, &format, &depth_format);
 
     #[derive(Debug, Clone, Copy, Default)]
+    #[repr(C)]
     struct Vec4 {
         x : f32,
         y : f32,
@@ -555,6 +557,7 @@ unsafe {
     }
 
     #[derive(Debug, Clone, Copy, Default)]
+    #[repr(C)]
     struct DCVert {
         position : Vec4,
         normal   : Vec4,
@@ -564,8 +567,8 @@ unsafe {
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
-    let chunk_dimensions : [i32;3] = [12, 2, 12];
-    let total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
+    let chunk_dimensions : [i32;3] = [12, 8, 12];
+    let _total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
 
     //TODO: glsl->spirv->shader module helper function in gfx_helpers
     let shader_module = {
@@ -603,6 +606,7 @@ unsafe {
                 let shader_module = Arc::new(&shader_module);
 
                 scoped.execute(move || {
+
                     let vertices_buffer = GpuBuffer::new_cpu_visible(
                         &vec![DCVert::default(); total_voxels], 
                         hal::buffer::Usage::STORAGE, 
@@ -639,21 +643,29 @@ unsafe {
                     );
 
                     compute_context.dispatch(&mut compute_queue_group.lock().unwrap().queues[0]);
-
                     compute_context.wait_for_completion(&device_state);
 
                     //FIXME: currently converting this data to gltf_model vertex data for quick testing
-                    let vertex_data : Vec<Vertex> = compute_context.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| Vertex {
+                    let vertex_data : Vec<Vertex> = compute_context.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| {
+                        
+                        //TODO: Figure out why QEF blows up
+                        // let error = v.position.w;
+                        // if error > 0.0 {
+                        //     println!("Error: {}", error);
+                        // }
+                        
+                        Vertex {
                         a_pos : [v.position.x, v.position.y, v.position.z],
-                        a_col: [0.0, 0.0, 0.0, 0.0],
+                        a_col: [(x.abs() % 2) as f32 + 0.5, (y.abs() % 2) as f32 + 0.5, (z.abs() % 2) as f32 + 0.5, 1.0],
                         a_uv:  [0.0, 0.0],
                         a_norm: [v.normal.x, v.normal.y, v.normal.z],
                         a_joint_indices: [0.0, 0.0, 0.0, 0.0],
                         a_joint_weights: [0.0, 0.0, 0.0, 0.0],
+                        }
                     }).collect();
 
                     //TODO: faster way to filter data
-                    let mut index_data : Vec<u32> = compute_context.buffers[1].get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
+                    let index_data : Vec<u32> = compute_context.buffers[1].get_data::<i32>(&device_state).iter().filter(|&&i| i != -1).map(|i| *i as u32).collect();
                     if !index_data.is_empty() {
                         tx.send(
                             (GpuBuffer::new_cpu_visible(&vertex_data, hal::buffer::Usage::VERTEX, &device_state),
@@ -672,7 +684,7 @@ unsafe {
     let mut frame_fence = device_state.device.create_fence(false).unwrap();
 
     let mut running = true;
-    let mut needs_resize = true;
+    let mut needs_resize = false;
     let (mut window_width, mut window_height) = (0u32, 0u32);
 
     let first_timestamp = timestamp();
@@ -688,6 +700,7 @@ unsafe {
 	let mut mouse_pos = [0.0, 0.0];
 	let mut mouse_button_states =  [ false, false, false, false, false];
 	let mut anim_speed : f32 = 1.0;
+    let mut draw_wireframe = false;
     let mut max_terrain_triangles : f32 = 100000000.0;
 
     while running {
@@ -721,10 +734,10 @@ unsafe {
 										if input.state == winit::ElementState::Pressed {
 											is_fullscreen = !is_fullscreen;
 											if is_fullscreen {
-												_window.set_fullscreen(Some(_window.get_primary_monitor()));
+												window.set_fullscreen(Some(window.get_primary_monitor()));
 											}
 											else {
-												_window.set_fullscreen(None);
+												window.set_fullscreen(None);
 											}
 										}
 									},
@@ -784,7 +797,7 @@ unsafe {
         if let Some(true) = key_states.get(&winit::VirtualKeyCode::S) {
             forward -= 1.0;
         }
-        if let Some(true) = key_states.get(&winit::VirtualKeyCode::D) { 
+        if let Some(true) = key_states.get(&winit::VirtualKeyCode::D) {
             right += 1.0;
         }
         if let Some(true) = key_states.get(&winit::VirtualKeyCode::A) {
@@ -806,6 +819,7 @@ unsafe {
             continue;
         }
         
+        let needed_resize = needs_resize;
         if needs_resize {
             device_state.device.wait_idle().unwrap();
 
@@ -822,12 +836,12 @@ unsafe {
             device_state.device.destroy_image(depth_image);
             device_state.device.free_memory(depth_memory);
 
-            device_state.device.destroy_swapchain(swap_chain);
+            device_state.device.destroy_swapchain(swapchain);
 
             //Build new resources         
             let (new_swapchain, new_backbuffer, new_format, new_extent) = create_swapchain(&device_state, &mut surface );
 
-            swap_chain = new_swapchain;
+            swapchain = new_swapchain;
             format = new_format;
             extent = new_extent;
 
@@ -845,14 +859,16 @@ unsafe {
             camera_uniform_struct.proj_matrix = glm::perspective(
                 extent.width as f32 / extent.height as f32,
                 degrees_to_radians(90.0f32),
-                0.001,
-                10000.0
+                0.01,
+                100000.0
             ).into();
             
             //flipping this to make y point up
             camera_uniform_struct.proj_matrix[1][1] *= -1.0;
 
             needs_resize = false;
+            //TODO: figure out why this fixes our Renderpass RenderArea/Framebuffer size discrepancy issue
+            continue;
         }
 
         let time = timestamp() - first_timestamp;
@@ -902,7 +918,7 @@ unsafe {
         command_pool.reset();
 
         let frame: hal::SwapImageIndex = {
-            match swap_chain.acquire_image(!0, hal::FrameSync::Semaphore(&mut acquisition_semaphore)) {
+            match swapchain.acquire_image(!0, hal::FrameSync::Semaphore(&mut acquisition_semaphore)) {
                 Ok(i) => i,
                 Err(_) => {
                     needs_resize = true;
@@ -918,16 +934,26 @@ unsafe {
 			rect: hal::pso::Rect {
 				x: 0,
 				y: 0,
-				w: extent.width as _,
-				h: extent.height as _,
+				w: extent.width as i16,
+				h: extent.height as i16,
 			},
 			depth: 0.0..1.0,
 		};
 
+        if needed_resize {
+            println!("Viewport Dimensions {} {}", viewport.rect.w, viewport.rect.h);
+        }
+
 		cmd_buffer.set_viewports(0, &[viewport.clone()]);
 		cmd_buffer.set_scissors(0, &[viewport.rect]);
-		cmd_buffer.bind_graphics_pipeline(&pipeline);
-		cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]); //TODO
+        if draw_wireframe {
+            cmd_buffer.bind_graphics_pipeline(&wireframe_pipeline);
+		    cmd_buffer.bind_graphics_descriptor_sets(&wireframe_pipeline_layout, 0, Some(&desc_set), &[]);
+        }
+        else {
+            cmd_buffer.bind_graphics_pipeline(&pipeline);
+		    cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
+        }
 
         let mut dc_mesh_indices = 0;
 		{
@@ -980,6 +1006,7 @@ unsafe {
             igSliderFloat(CString::new("Terrain Triangle Cutoff").unwrap().as_ptr(), &mut max_terrain_triangles, 0.0, 100000000.0, std::ptr::null(), 6.0f32);
 			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut camera_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
             igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
+            igCheckbox(CString::new("Wireframe").unwrap().as_ptr(), &mut draw_wireframe);
             igEnd();
 
 			igShowDemoWindow(&mut true);
@@ -1002,10 +1029,11 @@ unsafe {
         }
 
         //TODO: Remove this and fix synchro bugs(last time i tried there were some weird synchro issues when going full screen on DX12 backend)
+        //FIXME: if we remove this, need to use 1 command_buffer per frame
         device_state.device.wait_for_fence(&frame_fence, !0).unwrap();
 
         // present frame
-        if let Err(_) = swap_chain.present(&mut general_queue_group.queues[0], frame, &[submission_semaphore]) {
+        if let Err(_) = swapchain.present(&mut general_queue_group.queues[0], frame, &[submission_semaphore]) {
             needs_resize = true;
         }
 
@@ -1040,7 +1068,7 @@ unsafe {
         device_state.device.destroy_image_view(rtv);
     }
 
-    device_state.device.destroy_swapchain(swap_chain);
+    device_state.device.destroy_swapchain(swapchain);
 
     });
 

@@ -17,15 +17,15 @@ layout(location = 0) out vec4 target0;
 
 void main() {
 
-    int int_time = int(ubo.time / 2.0); //Divide to slow rate of change
-    int remainder = int_time % 2; //Gives you 4 options in switch
+    int int_time = int(ubo.time / 8.0); //Divide to slow rate of change
+    int remainder = int_time % 2; //Gives you n options in switch
 
     //Basic Directional Diffuse Lighting
     vec4 diffuse = vec4(0.8, 0.7, 0.7, 1.0);
     float ambient = 0.2;
     float shininess = 1.0;
 
-    vec3 l = normalize(vec3(-1, -1, 0));
+    vec3 l = normalize(vec3(-1, 1, 0));
     vec3 n = normalize(in_norm);
     float intensity = max(dot(n,l), 0.0);
 
@@ -43,6 +43,8 @@ void main() {
         default:
                 col = in_col;
     }
+
+    col = vec4(in_col.xyz * intensity, 1.0);
 
     target0 = col;
 }

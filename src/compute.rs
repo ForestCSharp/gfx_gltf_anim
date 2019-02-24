@@ -8,9 +8,6 @@ use gpu_buffer::{GpuBuffer};
 
 use gfx_helpers::DeviceState;
 
-use std::fs;
-use std::io::{Read};
-
 //TODO: Dual-Contouring Compute Test
 //Pass 1. Find and contour vertices (vertex buffer) buffer size = x*y*z
 //Pass 2. Use those vertices to build faces (index buffer)
@@ -140,7 +137,7 @@ impl ComputeContext {
 
         let mut command_buffer = command_pool.acquire_command_buffer::<hal::command::MultiShot>();
 
-        unsafe {          
+        unsafe {
             //TODO: allow simultaneous use?
             command_buffer.begin(false);
             command_buffer.bind_compute_pipeline(&pipeline);

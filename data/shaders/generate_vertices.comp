@@ -6,18 +6,30 @@
 // works in C++ and GLSL
 
 // public domain
+#define USE_GLSL 1
+
+#ifndef USE_WEBGL
+#define USE_WEBGL 0
+#endif
+
+#define SVD_NUM_SWEEPS 5
+
+// GLSL prerequisites
+
+#define IN(t,x) in t x
+#define OUT(t, x) out t x
+#define INOUT(t, x) inout t x
+#define rsqrt inversesqrt
+
+#define SWIZZLE_XYZ(v) v.xyz
 
 // SVD
 ////////////////////////////////////////////////////////////////////////////////
 
-#define SVD_NUM_SWEEPS 5
-
 const float Tiny_Number = 1.e-20;
 
-void givens_coeffs_sym(float a_pp, float a_pq, float a_qq, out float c, out float s) 
-{
-    if (a_pq == 0.0) 
-    {
+void givens_coeffs_sym(float a_pp, float a_pq, float a_qq, OUT(float,c), OUT(float,s)) {
+    if (a_pq == 0.0) {
         c = 1.0;
         s = 0.0;
         return;
@@ -25,19 +37,17 @@ void givens_coeffs_sym(float a_pp, float a_pq, float a_qq, out float c, out floa
     float tau = (a_qq - a_pp) / (2.0 * a_pq);
     float stt = sqrt(1.0 + tau * tau);
     float tan = 1.0 / ((tau >= 0.0) ? (tau + stt) : (tau - stt));
-    c = inversesqrt(1.0 + tan * tan);
+    c = rsqrt(1.0 + tan * tan);
     s = tan * c;
 }
 
-void svd_rotate_xy(inout float x, inout float y, in float c, in float s) 
-{
+void svd_rotate_xy(INOUT(float,x), INOUT(float,y), IN(float,c), IN(float,s)) {
     float u = x; float v = y;
     x = c * u - s * v;
     y = s * u + c * v;
 }
 
-void svd_rotateq_xy(inout float x, inout float y, inout float a, in float c, in float s) 
-{
+void svd_rotateq_xy(INOUT(float,x), INOUT(float,y), INOUT(float,a), IN(float,c), IN(float,s)) {
     float cc = c * c; float ss = s * s;
     float mx = 2.0 * c * s * a;
     float u = x; float v = y;
@@ -45,12 +55,8 @@ void svd_rotateq_xy(inout float x, inout float y, inout float a, in float c, in 
     y = ss * u + mx + cc * v;
 }
 
-void svd_rotate(inout mat3 vtav, inout mat3 v, in int a, in int b) 
-{
-    if (vtav[a][b] == 0.0) 
-    { 
-        return;
-    }
+void svd_rotate(INOUT(mat3,vtav), INOUT(mat3,v), IN(int,a), IN(int,b)) {
+    if (vtav[a][b] == 0.0) return;
     
     float c, s;
     givens_coeffs_sym(vtav[a][a], vtav[a][b], vtav[b][b], c, s);
@@ -63,16 +69,14 @@ void svd_rotate(inout mat3 vtav, inout mat3 v, in int a, in int b)
     svd_rotate_xy(v[2][a], v[2][b], c, s);
 }
 
-void svd_solve_sym(in mat3 a, out vec3 sigma, inout mat3 v) 
-{
+void svd_solve_sym(IN(mat3,a), OUT(vec3,sigma), INOUT(mat3,v)) {
     // assuming that A is symmetric: can optimize all operations for 
     // the upper right triagonal
     mat3 vtav = a;
     // assuming V is identity: you can also pass a matrix the rotations
     // should be applied to
     // U is not computed
-    for (int i = 0; i < SVD_NUM_SWEEPS; ++i) 
-    {
+    for (int i = 0; i < SVD_NUM_SWEEPS; ++i) {
         svd_rotate(vtav, v, 0, 1);
         svd_rotate(vtav, v, 0, 2);
         svd_rotate(vtav, v, 1, 2);
@@ -80,13 +84,11 @@ void svd_solve_sym(in mat3 a, out vec3 sigma, inout mat3 v)
     sigma = vec3(vtav[0][0],vtav[1][1],vtav[2][2]);    
 }
 
-float svd_invdet(float x, float tol) 
-{
+float svd_invdet(float x, float tol) {
     return (abs(x) < tol || abs(1.0 / x) < tol) ? 0.0 : (1.0 / x);
 }
 
-void svd_pseudoinverse(out mat3 o, in vec3 sigma, in mat3 v) 
-{
+void svd_pseudoinverse(OUT(mat3,o), IN(vec3,sigma), IN(mat3,v)) {
     float d0 = svd_invdet(sigma[0], Tiny_Number);
     float d1 = svd_invdet(sigma[1], Tiny_Number);
     float d2 = svd_invdet(sigma[2], Tiny_Number);
@@ -101,8 +103,9 @@ void svd_pseudoinverse(out mat3 o, in vec3 sigma, in mat3 v)
              v[2][0] * d0 * v[2][0] + v[2][1] * d1 * v[2][1] + v[2][2] * d2 * v[2][2]);
 }
 
-void svd_solve_ATA_ATb(in mat3 ATA, in vec3 ATb, out vec3 x) 
-{
+void svd_solve_ATA_ATb(
+    IN(mat3,ATA), IN(vec3,ATb), OUT(vec3,x)
+) {
     mat3 V = mat3(1.0);
     vec3 sigma;
     
@@ -114,8 +117,7 @@ void svd_solve_ATA_ATb(in mat3 ATA, in vec3 ATb, out vec3 x)
     x = Vinv * ATb;
 }
 
-vec3 svd_vmul_sym(in mat3 a, in vec3 v) 
-{
+vec3 svd_vmul_sym(IN(mat3,a), IN(vec3,v)) {
     return vec3(
         dot(a[0],v),
         (a[0][1] * v.x) + (a[1][1] * v.y) + (a[1][2] * v.z),
@@ -123,7 +125,7 @@ vec3 svd_vmul_sym(in mat3 a, in vec3 v)
     );
 }
 
-void svd_mul_ata_sym(out mat3 o, in mat3 a)
+void svd_mul_ata_sym(OUT(mat3,o), IN(mat3,a))
 {
     o[0][0] = a[0][0] * a[0][0] + a[1][0] * a[1][0] + a[2][0] * a[2][0];
     o[0][1] = a[0][0] * a[0][1] + a[1][0] * a[1][1] + a[2][0] * a[2][1];
@@ -133,8 +135,7 @@ void svd_mul_ata_sym(out mat3 o, in mat3 a)
     o[2][2] = a[0][2] * a[0][2] + a[1][2] * a[1][2] + a[2][2] * a[2][2];
 }
     
-void svd_solve_Ax_b(in mat3 a, in vec3 b, out mat3 ATA, out vec3 ATb, out vec3 x) 
-{
+void svd_solve_Ax_b(IN(mat3,a), IN(vec3,b), OUT(mat3,ATA), OUT(vec3,ATb), OUT(vec3,x)) {
     svd_mul_ata_sym(ATA, a);
     ATb = b * a; // transpose(a) * b;
     svd_solve_ATA_ATb(ATA, ATb, x);
@@ -143,8 +144,12 @@ void svd_solve_Ax_b(in mat3 a, in vec3 b, out mat3 ATA, out vec3 ATb, out vec3 x
 // QEF
 ////////////////////////////////////////////////////////////////////////////////
 
-void qef_add( in vec3 n, in vec3 p, inout mat3 ATA, inout vec3 ATb, inout vec4 pointaccum)
-{ 
+void qef_add(
+    IN(vec3,n), IN(vec3,p),
+    INOUT(mat3,ATA), 
+    INOUT(vec3,ATb),
+    INOUT(vec4,pointaccum))
+{  
     ATA[0][0] += n.x * n.x;
     ATA[0][1] += n.x * n.y;
     ATA[0][2] += n.x * n.z;
@@ -157,15 +162,18 @@ void qef_add( in vec3 n, in vec3 p, inout mat3 ATA, inout vec3 ATb, inout vec4 p
     pointaccum += vec4(p,1.0);
 }
 
-float qef_calc_error(in mat3 A, in vec3 x, in vec3 b) 
-{
+float qef_calc_error(IN(mat3,A), IN(vec3, x), IN(vec3, b)) {
     vec3 vtmp = b - svd_vmul_sym(A, x);
     return dot(vtmp,vtmp);
 }
 
-float qef_solve(in mat3 ATA, in vec3 ATb, in vec4 pointaccum, out vec3 x) 
-{
-    vec3 masspoint = pointaccum.xyz / pointaccum.w;
+float qef_solve(
+    IN(mat3,ATA), 
+    IN(vec3,ATb),
+    IN(vec4,pointaccum),
+    OUT(vec3,x)
+) {
+    vec3 masspoint = SWIZZLE_XYZ(pointaccum) / pointaccum.w;
     ATb -= svd_vmul_sym(ATA, masspoint);
     svd_solve_ATA_ATb(ATA, ATb, x);
     float result = qef_calc_error(ATA, x, ATb);
@@ -174,42 +182,6 @@ float qef_solve(in mat3 ATA, in vec3 ATb, in vec4 pointaccum, out vec3 x)
         
     return result;
 }
-
-//Example Code
-
-// void main() {
-//     vec4 pointaccum = vec4(0.0);
-//     mat3 ATA = mat3(0.0);
-//     vec3 ATb = vec3(0.0);
-    
-//     vec3 normals[5] = {
-//         normalize(vec3( 1.0,1.0,0.0)),
-//         normalize(vec3( 1.0,1.0,0.0)),
-//         normalize(vec3(-1.0,1.0,0.0)),
-//         normalize(vec3(-1.0,2.0,1.0)),
-//         //normalize(vec3(-1.0,1.0,0.0)),
-//         normalize(vec3(-1.0,1.0,0.0)),
-//     };
-//     vec3 points[5] = {
-//         vec3(  1.0,0.0,0.3),
-//         vec3(  0.9,0.1,-0.5),
-//         vec3( -0.8,0.2,0.6),
-//         vec3( -1.0,0.0,0.01),
-//         vec3( -1.1,-0.1,-0.5),
-//     };
-    
-//     for (int i= 0; i < 5; ++i) {
-//         qef_add(normals[i],points[i],ATA,ATb,pointaccum);
-//     }
-//     vec3 com = pointaccum.xyz / pointaccum.w;
-    
-//     vec3 x;
-//     float error = qef_solve(ATA,ATb,pointaccum,x);
-
-//     printf("masspoint = (%.5f %.5f %.5f)\n", com.x, com.y, com.z);
-//     printf("point = (%.5f %.5f %.5f)\n", x.x, x.y, x.z);
-//     printf("error = %.5f\n", error);
-// }
 
 layout (local_size_x = 1, local_size_y = 1, local_size_z = 1 ) in;
 
@@ -413,6 +385,63 @@ vec2 voro_fbm(vec2 position, int octaves)
     return value;
 }
 
+float noised_hash(vec3 p)  // replace this by something better
+{
+    p  = 50.0*fract( p*0.3183099 + vec3(0.71,0.113,0.419));
+    return -1.0+2.0*fract( p.x*p.y*p.z*(p.x+p.y+p.z) );
+}
+
+// returns 3D value noise and its 3 derivatives
+vec4 noised( in vec3 x )
+{
+    vec3 p = floor(x);
+    vec3 w = fract(x);
+    
+    vec3 u = w*w*w*(w*(w*6.0-15.0)+10.0);
+    vec3 du = 30.0*w*w*(w*(w-2.0)+1.0);
+
+    float a = noised_hash( p+vec3(0,0,0) );
+    float b = noised_hash( p+vec3(1,0,0) );
+    float c = noised_hash( p+vec3(0,1,0) );
+    float d = noised_hash( p+vec3(1,1,0) );
+    float e = noised_hash( p+vec3(0,0,1) );
+    float f = noised_hash( p+vec3(1,0,1) );
+    float g = noised_hash( p+vec3(0,1,1) );
+    float h = noised_hash( p+vec3(1,1,1) );
+
+    float k0 =   a;
+    float k1 =   b - a;
+    float k2 =   c - a;
+    float k3 =   e - a;
+    float k4 =   a - b - c + d;
+    float k5 =   a - c - e + g;
+    float k6 =   a - b - e + f;
+    float k7 = - a + b + c - d + e - f - g + h;
+
+    return vec4( -1.0+2.0*(k0 + k1*u.x + k2*u.y + k3*u.z + k4*u.x*u.y + k5*u.y*u.z + k6*u.z*u.x + k7*u.x*u.y*u.z), 
+                      2.0* du * vec3( k1 + k4*u.y + k6*u.z + k7*u.y*u.z,
+                                      k2 + k5*u.z + k4*u.x + k7*u.z*u.x,
+                                      k3 + k6*u.x + k5*u.y + k7*u.x*u.y ) );
+}
+
+const mat2 m = mat2(0.8,-0.6,0.6,0.8);
+
+float terrain( in vec3 p )
+{
+    float a = 0.0;
+    float b = 1.0;
+    vec2  d = vec2(0.0);
+    for( int i=0; i<15; i++ )
+    {
+        vec3 n = noised(p).xyz;
+        d += n.yz;
+        a += b*n.x/(1.0+dot(d,d));
+        b *= 0.5;
+        p = vec3(m*p.xz*2.0, p.y);
+    }
+    return a;
+}
+
 float sdSphere( vec3 p, float s )
 {
   return length(p)-s;
@@ -432,27 +461,28 @@ float sdRoundBox( vec3 p, vec3 b, float r )
          + min(max(d.x,max(d.y,d.z)),0.0); // remove this line for an only partially signed sdf 
 }
 
-float opUnion( float d1, float d2 ) {  return min(-d1,d2); }
+float opUnion( float d1, float d2 ) {  return min(d1,d2); }
 float opSubtract( float d1, float d2 ) { return max(-d1,d2); } //Subtract d1 from d2
 float opIntersect( float d1, float d2 ) { return max(d1,d2); }
 
 float density_function(vec3 position)
 {
     vec3 warped_position = position + vec3(
-        snoise(position * 0.04) * 8,
-        snoise(position * 0.03) * 7,
-        snoise(position * 0.02) * 9);
+        snoise(position * 0.0004) * 8,
+        snoise(position * 0.0003) * 7,
+        snoise(position * 0.0002) * 9);
 
-    float fbm_noise = fbm(warped_position / 500.0, 4) * 500;
-    
-    float density = -position.y - 15;
+    //density += terrain(warped_position * 0.0023) * 25;
+    //density += fbm(warped_position / 50.0, 4) * 10;
+    //density += fbm(warped_position / 400.0, 2) * 250;
+    //density += voro_fbm(vec2(snoise(warped_position * 0.01), snoise(warped_position * 0.09)) * 0.1, 4).x * 75;
 
-    density += fbm_noise;
-    density += voro_fbm(vec2(snoise(warped_position * 0.01), snoise(warped_position * 0.009)), 4).x * 35;
-
-    density = opUnion(density, sdBox(position, vec3(10, 10, 10)));//, 1.0));
-    density = opUnion(density, sdSphere(position + vec3(10, 5, 0), 5));
-    density = opSubtract(sdSphere(position - vec3(6, 0, 6), 8), density);
+    float density = sdBox(position + vec3(20.23, 0.11, 0), vec3(20,20,20));
+    density = opUnion(density, sdBox(position + vec3(10.11, 5.27, 0), vec3(80,8,8)));
+    density = opUnion(density, sdSphere(position + vec3(120.1, 0, 0), 50));
+    density = opUnion(density, snoise(position * 0.004) * 8);
+    density = opUnion(density, fbm(warped_position / 400.0, 4) * 25);
+    // density = opSubtract(sdSphere(position - vec3(8, 0, 8), 8), density);
 
     // if (density > 0.0)
     // {
@@ -552,7 +582,7 @@ void main()
     vec3 normals[12];
     for (int i=0; i < num_points; ++i)
     {
-        normals[i] = density_function_normal(points[i],voxel_size);
+        normals[i] = density_function_normal(points[i],voxel_size / 100.0);
     }
 
     //Solve QEF
@@ -576,8 +606,7 @@ void main()
     }
 
     //FIXME: QEF_Solve producing some pretty nasty results
-    //FIXME: even with distance check above, QEF is no better than just using the center of mass
-    //TODO: test that the QEF is actually working
+    //FIXME: noise functions seem to be culprit
 
     vec3 normal = density_function_normal(qef_result, voxel_size);
     // if (num_points ==0) normal = vec3(0.0, 0.0, 0.0);
@@ -595,7 +624,7 @@ void main()
     // else if (num_points == 12) normal = vec3(1.0, 1.0, 1.0);
 
     vertices[STORAGE_INDEX].position = vec4(qef_result, 1.0);
-    vertices[STORAGE_INDEX].normal = vec4(normal, 1.0);//density_function_normal(qef_result, voxel_size), 1.0);
+    vertices[STORAGE_INDEX].normal = vec4(normal, 1.0);
 
     //Zero Out Indices
     for (int i = 0; i < 18; ++i)
