@@ -499,6 +499,7 @@ impl CimguiHal {
 						count: 1,
 					},
 			],
+            hal::pso::DescriptorPoolCreateFlags::empty()
 		).expect("Can't create descriptor pool") };
 
 		let desc_set =  unsafe { desc_pool.allocate_set(&desc_set_layout).unwrap() };
@@ -621,7 +622,7 @@ impl CimguiHal {
                     location: 0,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rg32Float,
+                        format: hal::format::Format::Rg32Sfloat,
                         offset: offset_of!(ImDrawVert, pos) as u32,
                     },
                 });
@@ -630,7 +631,7 @@ impl CimguiHal {
                     location: 1,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rg32Float,
+                        format: hal::format::Format::Rg32Sfloat,
                         offset: offset_of!(ImDrawVert, uv) as u32,
                     },
                 });

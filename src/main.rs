@@ -133,11 +133,11 @@ unsafe {
 
     let view_matrix = glm::Mat4::identity();
 
-    let perspective_matrix = glm::perspective(
+    let perspective_matrix = glm::perspective_zo(
         DIMS.width as f32 / DIMS.height as f32,
         degrees_to_radians(90.0f32),
+        100000.0,
         0.01,
-        100000.0
     );
 
     let mut camera_uniform_struct = UniformStruct {
@@ -191,6 +191,7 @@ unsafe {
                     count: 2,
                 },
         ],
+        hal::pso::DescriptorPoolCreateFlags::empty()
     ).expect("Can't create descriptor pool");
 
     let desc_set = desc_pool.allocate_set(&set_layout).unwrap();
@@ -245,14 +246,18 @@ unsafe {
     let (mut swapchain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface);
 
     //Depth Buffer Setup
-    let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent| {
-        let depth_format = hal::format::Format::D32Float;
+    let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent, sampled : bool| {
+        let depth_format = hal::format::Format::D32Sfloat;
         let mut depth_image = device_state.device.create_image(
             hal::image::Kind::D2(extent.width as _, extent.height as _, 1, 1),
             1,
             depth_format,
             hal::image::Tiling::Optimal,
-            hal::image::Usage::DEPTH_STENCIL_ATTACHMENT,
+            if sampled { 
+                hal::image::Usage::DEPTH_STENCIL_ATTACHMENT | hal::image::Usage::SAMPLED 
+            } else {
+                hal::image::Usage::DEPTH_STENCIL_ATTACHMENT
+            },
             hal::image::ViewCapabilities::empty()
         ).unwrap();
 
@@ -278,7 +283,7 @@ unsafe {
         (depth_view, depth_image, depth_memory, depth_format)
     };
 
-    let (mut depth_view, mut depth_image, mut depth_memory, mut depth_format) = create_depth_buffer(&device_state, &extent);
+    let (mut depth_view, mut depth_image, mut depth_memory, mut depth_format) = create_depth_buffer(&device_state, &extent, false);
 
     //Renderpass
     let create_renderpass = |device_state: &DeviceState, format : &hal::format::Format, depth_format: &hal::format::Format| {
@@ -359,7 +364,7 @@ unsafe {
     let (mut frame_images, mut framebuffers) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
     let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout, use_wireframe : bool| {
-        let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[(hal::pso::ShaderStageFlags::VERTEX, 0..8)]).expect("failed to create pipeline layout");
+        let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
             let vs_module = {
@@ -470,7 +475,7 @@ unsafe {
                     location: 0,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rgb32Float,
+                        format: hal::format::Format::Rgb32Sfloat,
                         offset: offset_of!(Vertex, a_pos) as u32,
                     },
                 });
@@ -479,7 +484,7 @@ unsafe {
                     location: 1,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rgba32Float,
+                        format: hal::format::Format::Rgba32Sfloat,
                         offset: offset_of!(Vertex, a_col) as u32,
                     },
                 });
@@ -488,7 +493,7 @@ unsafe {
                     location: 2,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rg32Float,
+                        format: hal::format::Format::Rg32Sfloat,
                         offset: offset_of!(Vertex, a_uv) as u32,
                     },
                 });
@@ -497,7 +502,7 @@ unsafe {
                     location: 3,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rgb32Float,
+                        format: hal::format::Format::Rgb32Sfloat,
                         offset: offset_of!(Vertex, a_norm) as u32,
                     },
                 });
@@ -506,7 +511,7 @@ unsafe {
                     location: 4,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rgba32Float,
+                        format: hal::format::Format::Rgba32Sfloat,
                         offset: offset_of!(Vertex, a_joint_indices) as u32,
                     },
                 });
@@ -515,13 +520,13 @@ unsafe {
                     location: 5,
                     binding: 0,
                     element: hal::pso::Element {
-                        format: hal::format::Format::Rgba32Float,
+                        format: hal::format::Format::Rgba32Sfloat,
                         offset: offset_of!(Vertex, a_joint_weights) as u32,
                     },
                 });
 
                 pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::On {
-                    fun: hal::pso::Comparison::LessEqual,
+                    fun: hal::pso::Comparison::GreaterEqual,
                     write: true,
                 };
                 pipeline_desc.depth_stencil.depth_bounds = false;
@@ -543,6 +548,186 @@ unsafe {
 
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false);
     let (wireframe_pipeline, wireframe_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true);
+
+    //BEGIN SHADOW MAPPING
+    //TODO: also add to quad.frag shader so lighting and shadows come from same source
+
+    let shadow_map_extent = hal::image::Extent {
+        width:  1920,
+        height: 1080,
+        depth: 1,
+    };
+
+    let light_pos = glm::vec3(5.0, 5.0, 5.0);
+
+    //let light_proj_matrix = glm::ortho(-10.0, 10.0, -10.0, 10.0, -10.0, 100.0);
+    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, 45.0,100000.0,0.01);
+    let light_view_matrix = glm::look_at(&light_pos, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
+    let model_matrix = glm::Mat4::identity(); // TODO: This is the model-matrix of whatever we're rendering
+    let light_matrix = light_proj_matrix * light_view_matrix * model_matrix;
+
+    let mut shadow_uniform_struct = ShadowUniform {
+        shadow_mvp : light_matrix.into(),
+    };
+    //Make y point up
+    shadow_uniform_struct.shadow_mvp[1][1] *= -1.0;
+    
+    let mut shadow_uniform_buffer = GpuBuffer::new( &[shadow_uniform_struct],
+                                                    hal::buffer::Usage::UNIFORM,
+                                                    hal::memory::Properties::CPU_VISIBLE,
+                                                    &device_state,
+                                                    &mut general_queue_group);
+
+    let (mut shadow_depth_view, mut shadow_depth_image, mut shadow_depth_memory, mut shadow_depth_format) = create_depth_buffer(&device_state, &shadow_map_extent, true);
+
+    let (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline) = {
+        let shadow_renderpass = {
+            let depth_attachment = hal::pass::Attachment {
+                format: Some(shadow_depth_format),
+                samples: 1,
+                ops: hal::pass::AttachmentOps::new(hal::pass::AttachmentLoadOp::Clear, hal::pass::AttachmentStoreOp::Store),
+                stencil_ops: hal::pass::AttachmentOps::DONT_CARE,
+                layouts: hal::image::Layout::Undefined..hal::image::Layout::DepthStencilAttachmentOptimal, //TODO: Make Read Only?
+            };
+
+            let subpass = hal::pass::SubpassDesc {
+                colors: &[],
+                depth_stencil: Some(&(0, hal::image::Layout::DepthStencilAttachmentOptimal)),
+                inputs: &[],
+                resolves: &[],
+                preserves: &[],
+            };
+
+            device_state.device.create_render_pass(&[depth_attachment], &[subpass], &[]).expect("failed to create renderpass")
+        };
+
+        let shadow_set_layout = device_state.device.create_descriptor_set_layout( 
+            &[
+                //Shadow Uniform (Just one MVP matrix)
+                hal::pso::DescriptorSetLayoutBinding {
+                    binding: 0,
+                    ty: hal::pso::DescriptorType::UniformBuffer,
+                    count: 1,
+                    stage_flags:  hal::pso::ShaderStageFlags::VERTEX,
+                    immutable_samplers: false
+                },
+            ],
+            &[],
+        ).expect("Can't create descriptor set layout");
+
+        let mut shadow_desc_pool = device_state.device.create_descriptor_pool(
+            1,
+            &[
+                hal::pso::DescriptorRangeDesc {
+                        ty: hal::pso::DescriptorType::UniformBuffer,
+                        count: 1,
+                    },
+            ],
+            hal::pso::DescriptorPoolCreateFlags::empty()
+        ).expect("Can't create descriptor pool");
+
+        let shadow_desc_set = shadow_desc_pool.allocate_set(&shadow_set_layout).unwrap();
+
+        device_state.device.write_descriptor_sets( vec![
+            hal::pso::DescriptorSetWrite {
+                set: &shadow_desc_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(hal::pso::Descriptor::Buffer(&shadow_uniform_buffer.buffer, None..None)),
+        }]);
+
+        let shadow_pipeline_layout = device_state.device
+            .create_pipeline_layout(Some(shadow_set_layout), &[])
+            .expect("failed to create pipeline layout");
+
+        let shadow_pipeline = {
+            let vs_module = {
+                let glsl = fs::read_to_string("data/shaders/shadow.vert").unwrap();
+                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
+                    .unwrap()
+                    .bytes()
+                    .map(|b| b.unwrap())
+                    .collect();
+                device_state.device.create_shader_module(&spirv).unwrap()
+            };
+
+            let pipeline = {
+                let vs_entry = hal::pso::EntryPoint::<B> {
+                        entry: "main",
+                        module: &vs_module,
+                        specialization: hal::pso::Specialization::default(),
+                    };
+
+                let shader_entries = hal::pso::GraphicsShaderSet {
+                    vertex: vs_entry,
+                    hull: None,
+                    domain: None,
+                    geometry: None,
+                    fragment: None,
+                };
+
+                let subpass = hal::pass::Subpass {
+                    index: 0,
+                    main_pass: &shadow_renderpass,
+                };
+
+                let mut pipeline_desc = hal::pso::GraphicsPipelineDesc::new(
+                    shader_entries,
+                    hal::Primitive::TriangleList,
+                    hal::pso::Rasterizer {
+                        polygon_mode: hal::pso::PolygonMode::Fill,
+                        cull_face: hal::pso::Face::NONE,
+                        front_face: hal::pso::FrontFace::CounterClockwise,
+                        depth_clamping: false,
+                        depth_bias: None,
+                        conservative: false,
+                    },
+                    &shadow_pipeline_layout,
+                    subpass,
+                );
+                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc(
+                    hal::pso::ColorMask::ALL,
+                    hal::pso::BlendState::ALPHA,
+                ));
+
+                pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
+                    binding: 0,
+                    stride: std::mem::size_of::<Vertex>() as u32,
+                    rate: hal::pso::VertexInputRate::Vertex,
+                });
+
+                pipeline_desc.attributes.push(hal::pso::AttributeDesc {
+                    location: 0,
+                    binding: 0,
+                    element: hal::pso::Element {
+                        format: hal::format::Format::Rgb32Sfloat,
+                        offset: offset_of!(Vertex, a_pos) as u32,
+                    },
+                });
+
+                pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::On {
+                    fun: hal::pso::Comparison::GreaterEqual,
+                    write: true,
+                };
+                pipeline_desc.depth_stencil.depth_bounds = false;
+                pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
+
+                device_state.device.create_graphics_pipeline(&pipeline_desc, None)
+            };
+
+            device_state.device.destroy_shader_module(vs_module);
+
+            pipeline.unwrap()
+        };
+
+        (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline)
+    };
+
+    //FIXME: one framebuffer per frame? or not because depth-only?
+    let shadow_framebuffer = device_state.device
+                                .create_framebuffer(&shadow_renderpass, vec![&shadow_depth_view], shadow_map_extent)
+                                .unwrap();
+    //END SHADOW MAPPING
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &device_state, &mut general_queue_group, &format, &depth_format);
@@ -596,7 +781,6 @@ unsafe {
     let compute_queue_group = Arc::new(Mutex::new(&mut compute_queue_group));
 
     //FIXME: these build async to rendering now, but will stall quitting when trying to close the window
-    //FIXME: There's one final pass in the current density function that seemingly generates duplicate data
     for y in -chunk_dimensions[1]..chunk_dimensions[1] {
         for x in -chunk_dimensions[0]..chunk_dimensions[0] {
             for z in -chunk_dimensions[2]..chunk_dimensions[2] {
@@ -846,7 +1030,7 @@ unsafe {
             format = new_format;
             extent = new_extent;
 
-            let (new_depth_view, new_depth_image, new_depth_memory, new_depth_format) = create_depth_buffer(&device_state, &extent);
+            let (new_depth_view, new_depth_image, new_depth_memory, new_depth_format) = create_depth_buffer(&device_state, &extent, false);
             depth_view = new_depth_view;
             depth_image = new_depth_image;
             depth_memory = new_depth_memory;
@@ -857,11 +1041,11 @@ unsafe {
             framebuffers = new_framebuffers;
 
             //Update Projection matrix (possible change in aspect ratio)
-            camera_uniform_struct.proj_matrix = glm::perspective(
+            camera_uniform_struct.proj_matrix = glm::perspective_zo(
                 extent.width as f32 / extent.height as f32,
                 degrees_to_radians(90.0f32),
-                0.01,
-                100000.0
+                100000.0,
+                0.01
             ).into();
             
             //flipping this to make y point up
@@ -901,9 +1085,6 @@ unsafe {
             &(cam_pos + cam_forward),
             &cam_up
         ).into();
-
-        camera_uniform_struct.model_matrix = (glm::translation(&glm::vec3(0.,0., -1.))
-                                              * glm::rotation(std::f32::consts::PI / 4.0, &glm::vec3(0.,1.,0.))).into();
 
         camera_uniform_struct.time = time as f32;
 
@@ -945,40 +1126,90 @@ unsafe {
             println!("Viewport Dimensions {} {}", viewport.rect.w, viewport.rect.h);
         }
 
-		cmd_buffer.set_viewports(0, &[viewport.clone()]);
-		cmd_buffer.set_scissors(0, &[viewport.rect]);
-        if draw_wireframe {
-            cmd_buffer.bind_graphics_pipeline(&wireframe_pipeline);
-		    cmd_buffer.bind_graphics_descriptor_sets(&wireframe_pipeline_layout, 0, Some(&desc_set), &[]);
-        }
-        else {
-            cmd_buffer.bind_graphics_pipeline(&pipeline);
-		    cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
+        //Collect DC_Meshes that we completed since last frame
+        while let Ok((dc_vertex_buffer, dc_index_buffer)) = rx.try_recv() {
+            dc_meshes.push((dc_vertex_buffer, dc_index_buffer));
         }
 
-        let mut dc_mesh_indices = 0;
+        let mut dc_mesh_indices_rendered = 0;
+
+        //Shadow Pass
+        {
+            let shadow_viewport = hal::pso::Viewport {
+                rect: hal::pso::Rect {
+                    x: 0,
+                    y: 0,
+                    w: shadow_map_extent.width as i16,
+                    h: shadow_map_extent.height as i16,
+                },
+                depth: 0.0..1.0,
+            };
+
+            cmd_buffer.set_viewports(0, &[shadow_viewport.clone()]);
+            cmd_buffer.set_scissors(0, &[shadow_viewport.rect]);
+            cmd_buffer.bind_graphics_pipeline(&shadow_pipeline);
+            cmd_buffer.bind_graphics_descriptor_sets(&shadow_pipeline_layout, 0, Some(&shadow_desc_set), &[]);
+
+            let mut shadow_map_encoder = cmd_buffer.begin_render_pass_inline(
+                &shadow_renderpass,
+                &shadow_framebuffer,
+                shadow_viewport.rect,
+                &[
+                    hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(0.0, 0))
+                ],
+            );
+
+            gltf_model.record_draw_commands(&mut shadow_map_encoder, 100);
+
+            //Dual Contour Testing
+            for (dc_vertex_buffer, dc_index_buffer) in &dc_meshes {
+                
+                //Stop Rendering early if we've reached the max value of terrain we'd like to render
+                if dc_mesh_indices_rendered / 3 > max_terrain_triangles as u32 {
+                    break;
+                }
+                
+                shadow_map_encoder.bind_vertex_buffers(0, Some((&dc_vertex_buffer.buffer, 0)));
+				shadow_map_encoder.bind_index_buffer(hal::buffer::IndexBufferView {
+                    buffer: &dc_index_buffer.buffer,
+                    offset: 0,
+                    index_type: hal::IndexType::U32,
+                });
+                shadow_map_encoder.draw_indexed(0..dc_index_buffer.count, 0, 0..1);
+                dc_mesh_indices_rendered += dc_index_buffer.count;
+            }
+        }
+
+        //Main Rendering Pass
 		{
+            cmd_buffer.set_viewports(0, &[viewport.clone()]);
+            cmd_buffer.set_scissors(0, &[viewport.rect]);
+            if draw_wireframe {
+                cmd_buffer.bind_graphics_pipeline(&wireframe_pipeline);
+                cmd_buffer.bind_graphics_descriptor_sets(&wireframe_pipeline_layout, 0, Some(&desc_set), &[]);
+            }
+            else {
+                cmd_buffer.bind_graphics_pipeline(&pipeline);
+                cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
+            }
+
 			let mut encoder = cmd_buffer.begin_render_pass_inline(
 				&renderpass,
 				&framebuffers[frame as usize],
 				viewport.rect,
 				&[
 					hal::command::ClearValue::Color(hal::command::ClearColor::Float([0.2, 0.2, 0.2, 0.0,])),
-					hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(1.0, 0))
+					hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(0.0, 0))
 				],
 			);
 
 			gltf_model.record_draw_commands(&mut encoder, 100);
 
-            while let Ok((dc_vertex_buffer, dc_index_buffer)) = rx.try_recv() {
-                dc_meshes.push((dc_vertex_buffer, dc_index_buffer));
-            }
-
             //Dual Contour Testing
             for (dc_vertex_buffer, dc_index_buffer) in &dc_meshes {
                 
                 //Stop Rendering early if we've reached the max value of terrain we'd like to render
-                if dc_mesh_indices / 3 > max_terrain_triangles as u32 {
+                if dc_mesh_indices_rendered / 3 > max_terrain_triangles as u32 {
                     break;
                 }
                 
@@ -989,7 +1220,6 @@ unsafe {
                     index_type: hal::IndexType::U32,
                 });
                 encoder.draw_indexed(0..dc_index_buffer.count, 0, 0..1);
-                dc_mesh_indices += dc_index_buffer.count;
             }
 		}
 
@@ -1003,7 +1233,7 @@ unsafe {
 			igBegin(CString::new("Animation").unwrap().as_ptr(), &mut true, 0);
 			igText(CString::new("Drag the Slider to change anim speed").unwrap().as_ptr());
 			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 15.0f32, std::ptr::null(), 2.0f32);
-            igText(CString::new(format!("Terrain Triangle Count: {}", dc_mesh_indices / 3)).unwrap().as_ptr());
+            igText(CString::new(format!("Terrain Triangle Count: {}", dc_mesh_indices_rendered / 3)).unwrap().as_ptr());
             igSliderFloat(CString::new("Terrain Triangle Cutoff").unwrap().as_ptr(), &mut max_terrain_triangles, 0.0, 100000000.0, std::ptr::null(), 6.0f32);
 			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut camera_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
             igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
@@ -1013,6 +1243,7 @@ unsafe {
 			igShowDemoWindow(&mut true);
 		}
 
+        //Cimgui Pass
 		cimgui_hal.render(&mut cmd_buffer, &framebuffers[frame as usize], &device_state, &mut general_queue_group);
 
 		cmd_buffer.finish();
@@ -1088,6 +1319,7 @@ unsafe {
 const DIMS: hal::window::Extent2D = hal::window::Extent2D { width: 1280, height: 720 };
 
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 struct UniformStruct {
     view_matrix:  [[f32;4];4],
     proj_matrix:  [[f32;4];4],
@@ -1105,4 +1337,10 @@ fn timestamp() -> f64 {
 fn degrees_to_radians<T>( deg: T) -> T 
 where T: num::Float {
     deg * num::cast(0.0174533).unwrap()
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct ShadowUniform {
+    shadow_mvp:  [[f32;4];4]
 }

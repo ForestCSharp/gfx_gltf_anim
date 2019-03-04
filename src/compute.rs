@@ -104,6 +104,7 @@ impl ComputeContext {
                     ty    : hal::pso::DescriptorType::UniformBuffer,
                     count : buffers.iter().filter(|&b| b.usage == hal::buffer::Usage::UNIFORM).count(),
                 }],
+                hal::pso::DescriptorPoolCreateFlags::empty()
             )
         }.expect("failed to create compute descriptor pool");
 
