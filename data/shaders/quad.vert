@@ -15,7 +15,19 @@ layout(binding = 0) uniform UniformStruct {
 layout(binding = 1) uniform SkeletonUniform {
     mat4 bones[MAX_BONE_COUNT];
 } skeleton;
-//End Skeleton Uniform Data
+
+layout( set = 0, binding = 2 ) uniform UniformBuffer {
+    mat4 ShadowMVP;
+};
+
+//FIXME: ensure this is correct shadow bias matrix
+const mat4 shadowBiasMatrix = 
+mat4( 
+	0.5, 0.0, 0.0, 0.0,
+	0.0, 0.5, 0.0, 0.0,
+	0.0, 0.0, 1.0, 0.0,
+	0.5, 0.5, 0.0, 1.0 
+    );
 
 layout(location = 0) in vec3 in_pos;
 layout(location = 1) in vec4 in_col;
@@ -28,6 +40,7 @@ layout(location = 0) out vec4 out_pos;
 layout(location = 1) out vec4 out_col;
 layout(location = 2) out vec2 out_uv;
 layout(location = 3) out vec3 out_norm;
+layout(location = 4) out vec4 out_shadow_coord;
 
 out gl_PerVertex {
     vec4 gl_Position;
@@ -59,10 +72,14 @@ void main() {
 
     mat4 ModelMatrix = ubo.model_matrix * Translation;
     
-    //TODO: need to do MVP calc here if not_tessellated
-    out_pos = vec4(in_pos, 1.0);//(ubo.proj_matrix * ubo.view_matrix * ModelMatrix * skinMatrix * vec4(in_pos, 1.0));
+    //TODO: handle
+    out_pos = vec4(in_pos, 1.0);
+    
+    //TODO: will need to do this in the tessellation eval shader if tessellated
+    //out_pos = (ubo.proj_matrix * ubo.view_matrix * ModelMatrix * skinMatrix * vec4(in_pos, 1.0));
     out_col = in_col;
     out_uv = in_uv;
     out_norm = in_norm;
+    out_shadow_coord = shadowBiasMatrix * ShadowMVP * vec4(in_pos, 1.0);
     gl_Position = out_pos;
 }

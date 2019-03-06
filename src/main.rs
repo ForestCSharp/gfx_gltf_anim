@@ -127,6 +127,227 @@ unsafe {
 
 	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut general_queue_group);
 
+        //Depth Buffer Setup
+    let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent, sampled : bool| {
+        let depth_format = hal::format::Format::D32Sfloat;
+        let mut depth_image = device_state.device.create_image(
+            hal::image::Kind::D2(extent.width as _, extent.height as _, 1, 1),
+            1,
+            depth_format,
+            hal::image::Tiling::Optimal,
+            if sampled { 
+                hal::image::Usage::DEPTH_STENCIL_ATTACHMENT | hal::image::Usage::SAMPLED 
+            } else {
+                hal::image::Usage::DEPTH_STENCIL_ATTACHMENT
+            },
+            hal::image::ViewCapabilities::empty()
+        ).unwrap();
+
+        let depth_mem_reqs = device_state.device.get_image_requirements(&depth_image);
+
+		let mem_type = gfx_helpers::get_memory_type(&device_state.physical_device, &depth_mem_reqs, hal::memory::Properties::DEVICE_LOCAL);
+
+        let depth_memory = device_state.device.allocate_memory(mem_type, depth_mem_reqs.size).unwrap();
+        device_state.device.bind_image_memory(&depth_memory, 0, &mut depth_image).unwrap();
+
+        let depth_view = device_state.device.create_image_view(
+            &depth_image,
+            hal::image::ViewKind::D2,
+            depth_format,
+            hal::format::Swizzle::NO,
+            hal::image::SubresourceRange {
+            aspects: hal::format::Aspects::DEPTH,
+            levels: 0..1,
+            layers: 0..1,
+        },
+        ).unwrap();
+
+        (depth_view, depth_image, depth_memory, depth_format)
+    };
+
+    //BEGIN SHADOW MAPPING
+    //TODO: also add to quad.frag shader so lighting and shadows come from same source
+
+    let shadow_map_extent = hal::image::Extent {
+        width:  2048,
+        height: 2048,
+        depth: 1,
+    };
+
+    let light_pos = glm::vec3(0.0, 2000.0, 0.0);
+
+    //let light_proj_matrix = glm::ortho(-10.0, 10.0, -10.0, 10.0, -10.0, 100.0);
+    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(90.0f32),100000.0,0.01);
+    //TODO: Ensure "up" is orthogonal to vector formed by "eye" and "center"
+    let light_view_matrix = glm::look_at(&light_pos, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(1.0, 0.0, 0.0));
+    let light_matrix = light_proj_matrix * light_view_matrix;
+
+    let mut shadow_uniform_struct = ShadowUniform {
+        shadow_mvp : light_matrix.into(),
+    };
+    //Make y point up
+    shadow_uniform_struct.shadow_mvp[1][1] *= -1.0;
+    
+    let mut shadow_uniform_buffer = GpuBuffer::new( &[shadow_uniform_struct],
+                                                    hal::buffer::Usage::UNIFORM,
+                                                    hal::memory::Properties::CPU_VISIBLE,
+                                                    &device_state,
+                                                    &mut general_queue_group);
+
+    let (mut shadow_depth_view, mut shadow_depth_image, mut shadow_depth_memory, mut shadow_depth_format) = create_depth_buffer(&device_state, &shadow_map_extent, true);
+
+    let shadow_sampler = device_state.device.create_sampler(hal::image::SamplerInfo::new(hal::image::Filter::Linear, hal::image::WrapMode::Clamp))
+        .expect("Can't create sampler");
+
+    let (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline) = {
+        let shadow_renderpass = {
+            let depth_attachment = hal::pass::Attachment {
+                format: Some(shadow_depth_format),
+                samples: 1,
+                ops: hal::pass::AttachmentOps::new(hal::pass::AttachmentLoadOp::Clear, hal::pass::AttachmentStoreOp::Store),
+                stencil_ops: hal::pass::AttachmentOps::DONT_CARE,
+                layouts: hal::image::Layout::Undefined..hal::image::Layout::DepthStencilAttachmentOptimal, //TODO: Make Read Only?
+            };
+
+            let subpass = hal::pass::SubpassDesc {
+                colors: &[],
+                depth_stencil: Some(&(0, hal::image::Layout::DepthStencilAttachmentOptimal)),
+                inputs: &[],
+                resolves: &[],
+                preserves: &[],
+            };
+
+            device_state.device.create_render_pass(&[depth_attachment], &[subpass], &[]).expect("failed to create renderpass")
+        };
+
+        let shadow_set_layout = device_state.device.create_descriptor_set_layout( 
+            &[
+                //Shadow Uniform (Just one MVP matrix)
+                hal::pso::DescriptorSetLayoutBinding {
+                    binding: 0,
+                    ty: hal::pso::DescriptorType::UniformBuffer,
+                    count: 1,
+                    stage_flags:  hal::pso::ShaderStageFlags::VERTEX,
+                    immutable_samplers: false
+                },
+            ],
+            &[],
+        ).expect("Can't create descriptor set layout");
+
+        let mut shadow_desc_pool = device_state.device.create_descriptor_pool(
+            1,
+            &[
+                hal::pso::DescriptorRangeDesc {
+                        ty: hal::pso::DescriptorType::UniformBuffer,
+                        count: 1,
+                    },
+            ],
+            hal::pso::DescriptorPoolCreateFlags::empty()
+        ).expect("Can't create descriptor pool");
+
+        let shadow_desc_set = shadow_desc_pool.allocate_set(&shadow_set_layout).unwrap();
+
+        device_state.device.write_descriptor_sets( vec![
+            hal::pso::DescriptorSetWrite {
+                set: &shadow_desc_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(hal::pso::Descriptor::Buffer(&shadow_uniform_buffer.buffer, None..None)),
+        }]);
+
+        let shadow_pipeline_layout = device_state.device
+            .create_pipeline_layout(Some(shadow_set_layout), &[])
+            .expect("failed to create pipeline layout");
+
+        let shadow_pipeline = {
+            let vs_module = {
+                let glsl = fs::read_to_string("data/shaders/shadow.vert").unwrap();
+                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
+                    .unwrap()
+                    .bytes()
+                    .map(|b| b.unwrap())
+                    .collect();
+                device_state.device.create_shader_module(&spirv).unwrap()
+            };
+
+            let pipeline = {
+                let vs_entry = hal::pso::EntryPoint::<B> {
+                        entry: "main",
+                        module: &vs_module,
+                        specialization: hal::pso::Specialization::default(),
+                    };
+
+                let shader_entries = hal::pso::GraphicsShaderSet {
+                    vertex: vs_entry,
+                    hull: None,
+                    domain: None,
+                    geometry: None,
+                    fragment: None,
+                };
+
+                let subpass = hal::pass::Subpass {
+                    index: 0,
+                    main_pass: &shadow_renderpass,
+                };
+
+                let mut pipeline_desc = hal::pso::GraphicsPipelineDesc::new(
+                    shader_entries,
+                    hal::Primitive::TriangleList,
+                    hal::pso::Rasterizer {
+                        polygon_mode: hal::pso::PolygonMode::Fill,
+                        cull_face: hal::pso::Face::NONE,
+                        front_face: hal::pso::FrontFace::CounterClockwise,
+                        depth_clamping: false,
+                        depth_bias: None,
+                        conservative: false,
+                    },
+                    &shadow_pipeline_layout,
+                    subpass,
+                );
+                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc(
+                    hal::pso::ColorMask::ALL,
+                    hal::pso::BlendState::ALPHA,
+                ));
+
+                pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
+                    binding: 0,
+                    stride: std::mem::size_of::<Vertex>() as u32,
+                    rate: hal::pso::VertexInputRate::Vertex,
+                });
+
+                pipeline_desc.attributes.push(hal::pso::AttributeDesc {
+                    location: 0,
+                    binding: 0,
+                    element: hal::pso::Element {
+                        format: hal::format::Format::Rgb32Sfloat,
+                        offset: offset_of!(Vertex, a_pos) as u32,
+                    },
+                });
+
+                pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::On {
+                    fun: hal::pso::Comparison::GreaterEqual,
+                    write: true,
+                };
+                pipeline_desc.depth_stencil.depth_bounds = false;
+                pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
+
+                device_state.device.create_graphics_pipeline(&pipeline_desc, None)
+            };
+
+            device_state.device.destroy_shader_module(vs_module);
+
+            pipeline.unwrap()
+        };
+
+        (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline)
+    };
+
+    //FIXME: one framebuffer per frame? or not because depth-only?
+    let shadow_framebuffer = device_state.device
+                                .create_framebuffer(&shadow_renderpass, vec![&shadow_depth_view], shadow_map_extent)
+                                .unwrap();
+    //END SHADOW MAPPING
+
     let mut cam_pos = glm::vec3(1.0, 0.0, -0.5);
     let mut cam_forward = glm::vec3(0.,0.,0.,) - cam_pos;
     let mut cam_up = glm::vec3(0., 1., 0.);
@@ -179,6 +400,22 @@ unsafe {
                 stage_flags: hal::pso::ShaderStageFlags::VERTEX,
                 immutable_samplers: false
             },
+            //Shadow Matrix
+            hal::pso::DescriptorSetLayoutBinding {
+                binding: 2,
+                ty: hal::pso::DescriptorType::UniformBuffer,
+                count: 1,
+                stage_flags: hal::pso::ShaderStageFlags::VERTEX,
+                immutable_samplers: false
+            },
+            //Shadow Map
+            hal::pso::DescriptorSetLayoutBinding {
+                binding: 3,
+                ty: hal::pso::DescriptorType::CombinedImageSampler,
+                count: 1,
+                stage_flags: hal::pso::ShaderStageFlags::FRAGMENT,
+                immutable_samplers: false
+            }
         ],
         &[],
     ).expect("Can't create descriptor set layout");
@@ -188,7 +425,11 @@ unsafe {
         &[
             hal::pso::DescriptorRangeDesc {
                     ty: hal::pso::DescriptorType::UniformBuffer,
-                    count: 2,
+                    count: 3,
+                },
+            hal::pso::DescriptorRangeDesc {
+                    ty: hal::pso::DescriptorType::CombinedImageSampler,
+                    count: 1,
                 },
         ],
         hal::pso::DescriptorPoolCreateFlags::empty()
@@ -198,32 +439,32 @@ unsafe {
 
     //Descriptor write for our two uniform buffers (TODO: Handle in gltf_loader)
     //FIXME: make this work with models that don't have skeletons
-    if gltf_model.skeletons.len() > 0 {
-        device_state.device.write_descriptor_sets( vec![
-            hal::pso::DescriptorSetWrite {
-                set: &desc_set,
-                binding: 0,
-                array_offset: 0,
-                descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
-            },
-            hal::pso::DescriptorSetWrite {
-                set: &desc_set,
-                binding: 1,
-                array_offset: 0,
-                descriptors: Some(hal::pso::Descriptor::Buffer(&gltf_model.skeletons[0].gpu_buffer.buffer, None..None)),
-            },
-        ]);
-    }
-    else {
-        device_state.device.write_descriptor_sets( vec![
-            hal::pso::DescriptorSetWrite {
-                set: &desc_set,
-                binding: 0,
-                array_offset: 0,
-                descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
-            },
-        ]);
-    }
+    device_state.device.write_descriptor_sets( vec![
+        hal::pso::DescriptorSetWrite {
+            set: &desc_set,
+            binding: 0,
+            array_offset: 0,
+            descriptors: Some(hal::pso::Descriptor::Buffer(&uniform_gpu_buffer.buffer, None..None)),
+        },
+        hal::pso::DescriptorSetWrite {
+            set: &desc_set,
+            binding: 1,
+            array_offset: 0,
+            descriptors: Some(hal::pso::Descriptor::Buffer(&gltf_model.skeletons[0].gpu_buffer.buffer, None..None)),
+        },
+        hal::pso::DescriptorSetWrite {
+            set: &desc_set,
+            binding: 2,
+            array_offset: 0,
+            descriptors: Some(hal::pso::Descriptor::Buffer(&shadow_uniform_buffer.buffer, None..None)),
+        },
+        hal::pso::DescriptorSetWrite {
+            set: &desc_set,
+            binding: 3,
+            array_offset: 0,
+            descriptors: Some(hal::pso::Descriptor::CombinedImageSampler(&shadow_depth_view, hal::image::Layout::DepthStencilAttachmentOptimal, &shadow_sampler)),
+        }
+    ]);
 
     let create_swapchain = |device_state : &DeviceState, surface: &mut <B as hal::Backend>::Surface| {
         let (capabilities, formats, _present_modes) = surface.compatibility(&device_state.physical_device);
@@ -244,44 +485,6 @@ unsafe {
 
     //Swapchain
     let (mut swapchain, backbuffer, mut format, mut extent) = create_swapchain(&device_state, &mut surface);
-
-    //Depth Buffer Setup
-    let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent, sampled : bool| {
-        let depth_format = hal::format::Format::D32Sfloat;
-        let mut depth_image = device_state.device.create_image(
-            hal::image::Kind::D2(extent.width as _, extent.height as _, 1, 1),
-            1,
-            depth_format,
-            hal::image::Tiling::Optimal,
-            if sampled { 
-                hal::image::Usage::DEPTH_STENCIL_ATTACHMENT | hal::image::Usage::SAMPLED 
-            } else {
-                hal::image::Usage::DEPTH_STENCIL_ATTACHMENT
-            },
-            hal::image::ViewCapabilities::empty()
-        ).unwrap();
-
-        let depth_mem_reqs = device_state.device.get_image_requirements(&depth_image);
-
-		let mem_type = gfx_helpers::get_memory_type(&device_state.physical_device, &depth_mem_reqs, hal::memory::Properties::DEVICE_LOCAL);
-
-        let depth_memory = device_state.device.allocate_memory(mem_type, depth_mem_reqs.size).unwrap();
-        device_state.device.bind_image_memory(&depth_memory, 0, &mut depth_image).unwrap();
-
-        let depth_view = device_state.device.create_image_view(
-            &depth_image,
-            hal::image::ViewKind::D2,
-            depth_format,
-            hal::format::Swizzle::NO,
-            hal::image::SubresourceRange {
-            aspects: hal::format::Aspects::DEPTH,
-            levels: 0..1,
-            layers: 0..1,
-        },
-        ).unwrap();
-
-        (depth_view, depth_image, depth_memory, depth_format)
-    };
 
     let (mut depth_view, mut depth_image, mut depth_memory, mut depth_format) = create_depth_buffer(&device_state, &extent, false);
 
@@ -548,186 +751,6 @@ unsafe {
 
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false);
     let (wireframe_pipeline, wireframe_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true);
-
-    //BEGIN SHADOW MAPPING
-    //TODO: also add to quad.frag shader so lighting and shadows come from same source
-
-    let shadow_map_extent = hal::image::Extent {
-        width:  1920,
-        height: 1080,
-        depth: 1,
-    };
-
-    let light_pos = glm::vec3(5.0, 5.0, 5.0);
-
-    //let light_proj_matrix = glm::ortho(-10.0, 10.0, -10.0, 10.0, -10.0, 100.0);
-    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, 45.0,100000.0,0.01);
-    let light_view_matrix = glm::look_at(&light_pos, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(0.0, 1.0, 0.0));
-    let model_matrix = glm::Mat4::identity(); // TODO: This is the model-matrix of whatever we're rendering
-    let light_matrix = light_proj_matrix * light_view_matrix * model_matrix;
-
-    let mut shadow_uniform_struct = ShadowUniform {
-        shadow_mvp : light_matrix.into(),
-    };
-    //Make y point up
-    shadow_uniform_struct.shadow_mvp[1][1] *= -1.0;
-    
-    let mut shadow_uniform_buffer = GpuBuffer::new( &[shadow_uniform_struct],
-                                                    hal::buffer::Usage::UNIFORM,
-                                                    hal::memory::Properties::CPU_VISIBLE,
-                                                    &device_state,
-                                                    &mut general_queue_group);
-
-    let (mut shadow_depth_view, mut shadow_depth_image, mut shadow_depth_memory, mut shadow_depth_format) = create_depth_buffer(&device_state, &shadow_map_extent, true);
-
-    let (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline) = {
-        let shadow_renderpass = {
-            let depth_attachment = hal::pass::Attachment {
-                format: Some(shadow_depth_format),
-                samples: 1,
-                ops: hal::pass::AttachmentOps::new(hal::pass::AttachmentLoadOp::Clear, hal::pass::AttachmentStoreOp::Store),
-                stencil_ops: hal::pass::AttachmentOps::DONT_CARE,
-                layouts: hal::image::Layout::Undefined..hal::image::Layout::DepthStencilAttachmentOptimal, //TODO: Make Read Only?
-            };
-
-            let subpass = hal::pass::SubpassDesc {
-                colors: &[],
-                depth_stencil: Some(&(0, hal::image::Layout::DepthStencilAttachmentOptimal)),
-                inputs: &[],
-                resolves: &[],
-                preserves: &[],
-            };
-
-            device_state.device.create_render_pass(&[depth_attachment], &[subpass], &[]).expect("failed to create renderpass")
-        };
-
-        let shadow_set_layout = device_state.device.create_descriptor_set_layout( 
-            &[
-                //Shadow Uniform (Just one MVP matrix)
-                hal::pso::DescriptorSetLayoutBinding {
-                    binding: 0,
-                    ty: hal::pso::DescriptorType::UniformBuffer,
-                    count: 1,
-                    stage_flags:  hal::pso::ShaderStageFlags::VERTEX,
-                    immutable_samplers: false
-                },
-            ],
-            &[],
-        ).expect("Can't create descriptor set layout");
-
-        let mut shadow_desc_pool = device_state.device.create_descriptor_pool(
-            1,
-            &[
-                hal::pso::DescriptorRangeDesc {
-                        ty: hal::pso::DescriptorType::UniformBuffer,
-                        count: 1,
-                    },
-            ],
-            hal::pso::DescriptorPoolCreateFlags::empty()
-        ).expect("Can't create descriptor pool");
-
-        let shadow_desc_set = shadow_desc_pool.allocate_set(&shadow_set_layout).unwrap();
-
-        device_state.device.write_descriptor_sets( vec![
-            hal::pso::DescriptorSetWrite {
-                set: &shadow_desc_set,
-                binding: 0,
-                array_offset: 0,
-                descriptors: Some(hal::pso::Descriptor::Buffer(&shadow_uniform_buffer.buffer, None..None)),
-        }]);
-
-        let shadow_pipeline_layout = device_state.device
-            .create_pipeline_layout(Some(shadow_set_layout), &[])
-            .expect("failed to create pipeline layout");
-
-        let shadow_pipeline = {
-            let vs_module = {
-                let glsl = fs::read_to_string("data/shaders/shadow.vert").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
-                device_state.device.create_shader_module(&spirv).unwrap()
-            };
-
-            let pipeline = {
-                let vs_entry = hal::pso::EntryPoint::<B> {
-                        entry: "main",
-                        module: &vs_module,
-                        specialization: hal::pso::Specialization::default(),
-                    };
-
-                let shader_entries = hal::pso::GraphicsShaderSet {
-                    vertex: vs_entry,
-                    hull: None,
-                    domain: None,
-                    geometry: None,
-                    fragment: None,
-                };
-
-                let subpass = hal::pass::Subpass {
-                    index: 0,
-                    main_pass: &shadow_renderpass,
-                };
-
-                let mut pipeline_desc = hal::pso::GraphicsPipelineDesc::new(
-                    shader_entries,
-                    hal::Primitive::TriangleList,
-                    hal::pso::Rasterizer {
-                        polygon_mode: hal::pso::PolygonMode::Fill,
-                        cull_face: hal::pso::Face::NONE,
-                        front_face: hal::pso::FrontFace::CounterClockwise,
-                        depth_clamping: false,
-                        depth_bias: None,
-                        conservative: false,
-                    },
-                    &shadow_pipeline_layout,
-                    subpass,
-                );
-                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc(
-                    hal::pso::ColorMask::ALL,
-                    hal::pso::BlendState::ALPHA,
-                ));
-
-                pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
-                    binding: 0,
-                    stride: std::mem::size_of::<Vertex>() as u32,
-                    rate: hal::pso::VertexInputRate::Vertex,
-                });
-
-                pipeline_desc.attributes.push(hal::pso::AttributeDesc {
-                    location: 0,
-                    binding: 0,
-                    element: hal::pso::Element {
-                        format: hal::format::Format::Rgb32Sfloat,
-                        offset: offset_of!(Vertex, a_pos) as u32,
-                    },
-                });
-
-                pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::On {
-                    fun: hal::pso::Comparison::GreaterEqual,
-                    write: true,
-                };
-                pipeline_desc.depth_stencil.depth_bounds = false;
-                pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
-
-                device_state.device.create_graphics_pipeline(&pipeline_desc, None)
-            };
-
-            device_state.device.destroy_shader_module(vs_module);
-
-            pipeline.unwrap()
-        };
-
-        (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline)
-    };
-
-    //FIXME: one framebuffer per frame? or not because depth-only?
-    let shadow_framebuffer = device_state.device
-                                .create_framebuffer(&shadow_renderpass, vec![&shadow_depth_view], shadow_map_extent)
-                                .unwrap();
-    //END SHADOW MAPPING
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &device_state, &mut general_queue_group, &format, &depth_format);

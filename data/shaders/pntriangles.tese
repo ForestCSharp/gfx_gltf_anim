@@ -31,12 +31,14 @@ layout(location = 0) in vec4 in_pos[];
 layout(location = 1) in vec4 in_col[];
 layout(location = 2) in vec2 in_uv[];
 layout(location = 3) in vec3 in_norm[];
-layout(location = 4) in PnPatch in_patch[];
+layout(location = 4) in vec4 in_shadow_coord[];
+layout(location = 5) in PnPatch in_patch[];
 
 layout(location = 0) out vec4 out_pos;
 layout(location = 1) out vec4 out_col;
 layout(location = 2) out vec2 out_uv;
 layout(location = 3) out vec3 out_norm;
+layout(location = 4) out vec4 out_shadow_coord;
 
 void main()
 {
@@ -60,6 +62,7 @@ void main()
 
     out_uv = gl_TessCoord.x * in_uv[0] + gl_TessCoord.y * in_uv[1] + gl_TessCoord.z * in_uv[2];
     out_col = gl_TessCoord.x * in_col[0] + gl_TessCoord.y * in_col[1] + gl_TessCoord.z * in_col[2];
+    out_shadow_coord = gl_TessCoord.x * in_shadow_coord[0] + gl_TessCoord.y * in_shadow_coord[1] + gl_TessCoord.z * in_shadow_coord[2];
 
     //TODO: make this tweakable
     float tessAlpha = ubo.pn_triangles_strength;

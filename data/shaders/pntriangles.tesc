@@ -31,12 +31,14 @@ layout(location = 0) in vec4 in_pos[];
 layout(location = 1) in vec4 in_col[];
 layout(location = 2) in vec2 in_uv[];
 layout(location = 3) in vec3 in_norm[];
+layout(location = 4) in vec4 in_shadow_coord[];
 
 layout(location = 0) out vec4 out_pos[];
 layout(location = 1) out vec4 out_col[];
 layout(location = 2) out vec2 out_uv[];
 layout(location = 3) out vec3 out_norm[];
-layout(location = 4) out PnPatch out_patch[3];
+layout(location = 4) out vec4 out_shadow_coord[];
+layout(location = 5) out PnPatch out_patch[3];
 
 float wij(int i, int j)
 {
@@ -56,6 +58,7 @@ void main()
     out_col[gl_InvocationID] = in_col[gl_InvocationID];
     out_norm[gl_InvocationID] = in_norm[gl_InvocationID];
     out_uv[gl_InvocationID] = in_uv[gl_InvocationID];
+    out_shadow_coord[gl_InvocationID] = in_shadow_coord[gl_InvocationID];
 
     // set base
     float P0 = in_pos[0][gl_InvocationID];
