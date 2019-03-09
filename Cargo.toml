@@ -30,13 +30,13 @@ num_cpus = "1.10.0"
 log = "0.4.0"
 env_logger = "0.6.0"
 
-gfx-hal = { git = "https://github.com/ForestCSharp/gfx.git" }
+gfx-hal = { git = "https://github.com/gfx-rs/gfx.git" }
 
 
-gfx-backend-vulkan = { git = "https://github.com/ForestCSharp/gfx.git", optional = true }
-# gfx-backend-vulkan = { git = "https://github.com/gfx-rs/gfx.git", optional = true }
+# gfx-backend-vulkan = { git = "https://github.com/ForestCSharp/gfx.git", optional = true }
+gfx-backend-vulkan = { git = "https://github.com/gfx-rs/gfx.git", optional = true }
 [target.'cfg(windows)'.dependencies]
 #gfx-backend-dx11 = { git = "https://github.com/gfx-rs/gfx.git", optional = true}
-gfx-backend-dx12 = { git = "https://github.com/ForestCSharp/gfx.git", optional = true }
+gfx-backend-dx12 = { git = "https://github.com/gfx-rs/gfx.git", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
-gfx-backend-metal = { git = "https://github.com/ForestCSharp/gfx.git", optional = true }
+gfx-backend-metal = { git = "https://github.com/gfx-rs/gfx.git", optional = true }

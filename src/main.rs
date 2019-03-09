@@ -169,19 +169,19 @@ unsafe {
     //TODO: also add to quad.frag shader so lighting and shadows come from same source
 
     let shadow_map_extent = hal::image::Extent {
-        width:  8192,
-        height: 8192,
+        width:  2048,
+        height: 2048,
         depth: 1,
     };
 
-    let light_pos = glm::vec3(0.0, 2000.0, 0.0);
+    let light_pos = glm::vec3(0.0, 4000.0, 0.0);
     let light_dir = glm::vec3(0.0, -1.0, 0.0);
-    let look_target = light_pos + light_dir * 1000.0;
+    let light_target = light_pos + light_dir * 1000.0;
 
-    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(90.0f32),5000.0,10.0);
-    //let light_proj_matrix = glm::ortho_zo(-100.0, 100.0, -100.0, 100.0, -3000.0, 3000.0);
+    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(30.0f32),5000.0,10.0);
+    //let light_proj_matrix = glm::ortho_zo(-1000.0, 1000.0, -1000.0, 1000.0, -5000.0, 5000.0);
     //TODO: Ensure "up" is orthogonal to vector formed by "eye" and "center"
-    let light_view_matrix = glm::look_at(&light_pos, &look_target, &glm::vec3(1.0, 0.0, 0.0));
+    let light_view_matrix = glm::look_at(&light_pos, &light_target, &glm::vec3(1.0, 0.0, 0.0));
     let light_matrix = light_proj_matrix * light_view_matrix;
 
     let mut shadow_uniform_struct = ShadowUniform {

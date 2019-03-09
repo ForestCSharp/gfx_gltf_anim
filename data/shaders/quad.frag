@@ -46,7 +46,7 @@ float filterPCF(vec4 sc, float bias)
 
 	float shadowFactor = 0.0;
 	int count = 0;
-	int range = 4;
+	int range = 1;
 	
 	for (int x = -range; x <= range; x++)
 	{
@@ -73,7 +73,8 @@ void main() {
     vec3 n = normalize(in_norm);
     float intensity = max(dot(n,l), 0.0);
 
-    float bias = max(0.000005 * (1.0 - dot(n, l)), 0.0000005);
+    float bias_factor = 0.000001;
+    float bias = max(bias_factor * (1.0 - dot(n, l)), bias_factor / 10.0);
     bool enablePCF = true;
     intensity = enablePCF ? filterPCF(in_shadow_coord / in_shadow_coord.w, bias) : textureProj(in_shadow_coord / in_shadow_coord.w, vec2(0.0), bias);
 
