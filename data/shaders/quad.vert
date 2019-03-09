@@ -18,9 +18,9 @@ layout(binding = 1) uniform SkeletonUniform {
 
 layout( set = 0, binding = 2 ) uniform UniformBuffer {
     mat4 ShadowMVP;
+    vec3 light_dir;
 };
 
-//FIXME: ensure this is correct shadow bias matrix
 const mat4 shadowBiasMatrix = 
 mat4( 
 	0.5, 0.0, 0.0, 0.0,
@@ -77,9 +77,12 @@ void main() {
     
     //TODO: will need to do this in the tessellation eval shader if tessellated
     //out_pos = (ubo.proj_matrix * ubo.view_matrix * ModelMatrix * skinMatrix * vec4(in_pos, 1.0));
+
     out_col = in_col;
     out_uv = in_uv;
     out_norm = in_norm;
+    
+    //FIXME: this is also computed in the tese stage if tessellation is used (can't use the value computed here)
     out_shadow_coord = shadowBiasMatrix * ShadowMVP * vec4(in_pos, 1.0);
     gl_Position = out_pos;
 }

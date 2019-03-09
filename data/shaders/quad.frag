@@ -8,6 +8,11 @@ layout(binding = 0) uniform UniformStruct {
     float time;
 } ubo;
 
+layout( set = 0, binding = 2 ) uniform UniformBuffer {
+    mat4 ShadowMVP;
+    vec3 light_dir;
+};
+
 layout(set = 0, binding = 3) uniform sampler2D shadow_sampler;
 
 layout(location = 0) in vec4 in_pos;
@@ -18,8 +23,6 @@ layout(location = 4) in vec4 in_shadow_coord;
 
 layout(location = 0) out vec4 target0;
 
-const float ambient = 0.2;
-
 float textureProj(vec4 shadowCoord, vec2 off, float bias)
 {
 	float shadow = 1.0;
@@ -28,7 +31,7 @@ float textureProj(vec4 shadowCoord, vec2 off, float bias)
 		float dist = texture( shadow_sampler, shadowCoord.st + off ).r - bias;
 		if ( shadowCoord.w > 0.0 && dist > shadowCoord.z ) 
 		{
-			shadow = ambient;
+			shadow = 0.0;
 		}
 	}
 	return shadow;
@@ -43,7 +46,7 @@ float filterPCF(vec4 sc, float bias)
 
 	float shadowFactor = 0.0;
 	int count = 0;
-	int range = 1;
+	int range = 4;
 	
 	for (int x = -range; x <= range; x++)
 	{
@@ -66,14 +69,16 @@ void main() {
     vec4 diffuse = vec4(0.8, 0.7, 0.7, 1.0);
     float shininess = 1.0;
 
-    vec3 l = normalize(vec3(-1, 1, 0));
+    vec3 l = normalize(light_dir);
     vec3 n = normalize(in_norm);
     float intensity = max(dot(n,l), 0.0);
 
-    float bias = 0.000000005;
-    //TODO: Better bias (need light dir): float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005); 
+    float bias = max(0.000005 * (1.0 - dot(n, l)), 0.0000005);
     bool enablePCF = true;
-    intensity = (enablePCF == true) ? filterPCF(in_shadow_coord / in_shadow_coord.w, bias) : textureProj(in_shadow_coord / in_shadow_coord.w, vec2(0.0), bias);
+    intensity = enablePCF ? filterPCF(in_shadow_coord / in_shadow_coord.w, bias) : textureProj(in_shadow_coord / in_shadow_coord.w, vec2(0.0), bias);
+
+    const float ambient = 0.05;
+    intensity += ambient;
 
     vec4 lighting_color = max(intensity * diffuse, vec4(diffuse.xyz * ambient, 1.0));
 

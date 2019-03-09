@@ -169,21 +169,24 @@ unsafe {
     //TODO: also add to quad.frag shader so lighting and shadows come from same source
 
     let shadow_map_extent = hal::image::Extent {
-        width:  2048,
-        height: 2048,
+        width:  8192,
+        height: 8192,
         depth: 1,
     };
 
     let light_pos = glm::vec3(0.0, 2000.0, 0.0);
+    let light_dir = glm::vec3(0.0, -1.0, 0.0);
+    let look_target = light_pos + light_dir * 1000.0;
 
-    //let light_proj_matrix = glm::ortho(-10.0, 10.0, -10.0, 10.0, -10.0, 100.0);
-    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(90.0f32),100000.0,0.01);
+    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(90.0f32),5000.0,10.0);
+    //let light_proj_matrix = glm::ortho_zo(-100.0, 100.0, -100.0, 100.0, -3000.0, 3000.0);
     //TODO: Ensure "up" is orthogonal to vector formed by "eye" and "center"
-    let light_view_matrix = glm::look_at(&light_pos, &glm::vec3(0.0, 0.0, 0.0), &glm::vec3(1.0, 0.0, 0.0));
+    let light_view_matrix = glm::look_at(&light_pos, &look_target, &glm::vec3(1.0, 0.0, 0.0));
     let light_matrix = light_proj_matrix * light_view_matrix;
 
     let mut shadow_uniform_struct = ShadowUniform {
         shadow_mvp : light_matrix.into(),
+        light_dir  : light_dir.into(),
     };
     //Make y point up
     shadow_uniform_struct.shadow_mvp[1][1] *= -1.0;
@@ -405,7 +408,7 @@ unsafe {
                 binding: 2,
                 ty: hal::pso::DescriptorType::UniformBuffer,
                 count: 1,
-                stage_flags: hal::pso::ShaderStageFlags::VERTEX,
+                stage_flags: hal::pso::ShaderStageFlags::VERTEX | hal::pso::ShaderStageFlags::DOMAIN | hal::pso::ShaderStageFlags::FRAGMENT,
                 immutable_samplers: false
             },
             //Shadow Map
@@ -1365,5 +1368,6 @@ where T: num::Float {
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 struct ShadowUniform {
-    shadow_mvp:  [[f32;4];4]
+    shadow_mvp:  [[f32;4];4],
+    light_dir : [f32;3]
 }

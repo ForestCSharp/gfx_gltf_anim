@@ -4,6 +4,7 @@ layout( location = 0 ) in vec3 in_pos;
 
 layout( set = 0, binding = 0 ) uniform UniformBuffer {
     mat4 ShadowMVP;
+    vec3 light_dir;
 };
 
 void main() {

@@ -27,6 +27,11 @@ layout(binding = 0) uniform UniformStruct {
     float tess_level;
 } ubo;
 
+layout( set = 0, binding = 2 ) uniform UniformBuffer {
+    mat4 ShadowMVP;
+    vec3 light_dir;
+};
+
 layout(location = 0) in vec4 in_pos[];
 layout(location = 1) in vec4 in_col[];
 layout(location = 2) in vec2 in_uv[];
@@ -62,7 +67,7 @@ void main()
 
     out_uv = gl_TessCoord.x * in_uv[0] + gl_TessCoord.y * in_uv[1] + gl_TessCoord.z * in_uv[2];
     out_col = gl_TessCoord.x * in_col[0] + gl_TessCoord.y * in_col[1] + gl_TessCoord.z * in_col[2];
-    out_shadow_coord = gl_TessCoord.x * in_shadow_coord[0] + gl_TessCoord.y * in_shadow_coord[1] + gl_TessCoord.z * in_shadow_coord[2];
+    //out_shadow_coord = gl_TessCoord.x * in_shadow_coord[0] + gl_TessCoord.y * in_shadow_coord[1] + gl_TessCoord.z * in_shadow_coord[2];
 
     //TODO: make this tweakable
     float tessAlpha = ubo.pn_triangles_strength;
@@ -91,4 +96,15 @@ void main()
     // final position and normal
     vec3 finalPos = (1.0 - tessAlpha) * barPos + tessAlpha * pnPos;
     gl_Position = out_pos = ubo.proj_matrix * ubo.view_matrix * ubo.model_matrix * vec4(finalPos, 1.0);
+
+
+    const mat4 shadowBiasMatrix = 
+    mat4( 
+        0.5, 0.0, 0.0, 0.0,
+        0.0, 0.5, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.5, 0.5, 0.0, 1.0 
+    );
+
+    out_shadow_coord = shadowBiasMatrix * ShadowMVP * vec4(finalPos, 1.0);
 }
