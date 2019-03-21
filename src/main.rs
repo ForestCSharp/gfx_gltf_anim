@@ -178,8 +178,8 @@ unsafe {
     let light_dir = glm::vec3(0.0, -1.0, 0.0);
     let light_target = light_pos + light_dir * 1000.0;
 
-    let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(30.0f32),5000.0,10.0);
-    //let light_proj_matrix = glm::ortho_zo(-1000.0, 1000.0, -1000.0, 1000.0, -5000.0, 5000.0);
+    //let light_proj_matrix = glm::perspective_zo(shadow_map_extent.width as f32 / shadow_map_extent.height as f32, degrees_to_radians(30.0f32),5000.0,10.0);
+    let light_proj_matrix = glm::ortho_zo(-1000.0, 1000.0, -1000.0, 1000.0, 10000.0, -10000.0);
     //TODO: Ensure "up" is orthogonal to vector formed by "eye" and "center"
     let light_view_matrix = glm::look_at(&light_pos, &light_target, &glm::vec3(1.0, 0.0, 0.0));
     let light_matrix = light_proj_matrix * light_view_matrix;
