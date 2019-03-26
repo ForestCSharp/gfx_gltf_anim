@@ -187,6 +187,7 @@ unsafe {
     let mut shadow_uniform_struct = ShadowUniform {
         shadow_mvp : light_matrix.into(),
         light_dir  : light_dir.into(),
+        bias : 0.0,
     };
     //Make y point up
     shadow_uniform_struct.shadow_mvp[1][1] *= -1.0;
@@ -1264,7 +1265,10 @@ unsafe {
 			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut camera_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
             igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
             igCheckbox(CString::new("Wireframe").unwrap().as_ptr(), &mut draw_wireframe);
+            igSliderFloat(CString::new("Shadow Bias").unwrap().as_ptr(), &mut shadow_uniform_struct.bias, 0.0, 0.015, std::ptr::null(), 1.0f32);
             igEnd();
+
+            shadow_uniform_buffer.reupload(&[shadow_uniform_struct], &device_state, &mut general_queue_group);
 
 			igShowDemoWindow(&mut true);
 		}
@@ -1369,5 +1373,6 @@ where T: num::Float {
 #[repr(C)]
 struct ShadowUniform {
     shadow_mvp:  [[f32;4];4],
-    light_dir : [f32;3]
+    light_dir : [f32;3],
+    bias : f32,
 }

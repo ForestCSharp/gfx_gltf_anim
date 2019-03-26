@@ -11,6 +11,7 @@ layout(binding = 0) uniform UniformStruct {
 layout( set = 0, binding = 2 ) uniform UniformBuffer {
     mat4 ShadowMVP;
     vec3 light_dir;
+    float shadow_bias;
 };
 
 layout(set = 0, binding = 3) uniform sampler2D shadow_sampler;
@@ -73,7 +74,7 @@ void main() {
     vec3 n = normalize(in_norm);
     float intensity = max(dot(n,l), 0.0);
 
-    float bias_factor = 0.000001;
+    float bias_factor = shadow_bias;
     float bias = max(bias_factor * (1.0 - dot(n, l)), bias_factor / 10.0);
     bool enablePCF = true;
     intensity = enablePCF ? filterPCF(in_shadow_coord / in_shadow_coord.w, bias) : textureProj(in_shadow_coord / in_shadow_coord.w, vec2(0.0), bias);
