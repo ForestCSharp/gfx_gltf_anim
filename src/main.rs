@@ -187,7 +187,7 @@ unsafe {
     let mut shadow_uniform_struct = ShadowUniform {
         shadow_mvp : light_matrix.into(),
         light_dir  : light_dir.into(),
-        bias : 0.0,
+        bias : 0.001,
     };
     //Make y point up
     shadow_uniform_struct.shadow_mvp[1][1] *= -1.0;
@@ -775,11 +775,11 @@ unsafe {
         normal   : Vec4,
     }
 
-    let voxel_size = 8.0;
+    let voxel_size = 4.0;
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
-    let chunk_dimensions : [i32;3] = [12, 8, 12];
+    let chunk_dimensions : [i32;3] = [24, 16, 24];
     let _total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
 
     //TODO: glsl->spirv->shader module helper function in gfx_helpers
@@ -1233,6 +1233,7 @@ unsafe {
 			gltf_model.record_draw_commands(&mut encoder, 100);
 
             //Dual Contour Testing
+            dc_mesh_indices_rendered = 0;
             for (dc_vertex_buffer, dc_index_buffer) in &dc_meshes {
                 
                 //Stop Rendering early if we've reached the max value of terrain we'd like to render
@@ -1247,6 +1248,7 @@ unsafe {
                     index_type: hal::IndexType::U32,
                 });
                 encoder.draw_indexed(0..dc_index_buffer.count, 0, 0..1);
+                dc_mesh_indices_rendered += dc_index_buffer.count;
             }
 		}
 
