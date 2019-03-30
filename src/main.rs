@@ -775,11 +775,11 @@ unsafe {
         normal   : Vec4,
     }
 
-    let voxel_size = 4.0;
+    let voxel_size = 8.0;
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
-    let chunk_dimensions : [i32;3] = [24, 16, 24];
+    let chunk_dimensions : [i32;3] = [10, 6, 10];
     let _total_chunks = chunk_dimensions.iter().map(|x| x * 2).product::<i32>() as usize;
 
     //TODO: glsl->spirv->shader module helper function in gfx_helpers
@@ -1087,7 +1087,7 @@ unsafe {
         let delta_time = time - last_time;
 
         //Rotate cam_forward & cam_up when right mouse pressed using mouse delta
-        if mouse_button_states[1] {
+        if mouse_button_states[0] && !cimgui_hal.wants_capture_mouse() {
             let yaw_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.0 * 100.0 * delta_time) as f32, &glm::vec3(0.,1.,0.));
             let pitch_rotation = glm::quat_angle_axis(degrees_to_radians(-mouse_delta.1 * 100.0 * delta_time) as f32, &cam_forward.cross(&cam_up));
 
