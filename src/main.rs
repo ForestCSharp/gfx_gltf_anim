@@ -198,12 +198,12 @@ unsafe {
                                                     &device_state,
                                                     &mut general_queue_group);
 
-    let (mut shadow_depth_view, mut shadow_depth_image, mut shadow_depth_memory, mut shadow_depth_format) = create_depth_buffer(&device_state, &shadow_map_extent, true);
+    let (shadow_depth_view, _shadow_depth_image, _shadow_depth_memory, shadow_depth_format) = create_depth_buffer(&device_state, &shadow_map_extent, true);
 
     let shadow_sampler = device_state.device.create_sampler(hal::image::SamplerInfo::new(hal::image::Filter::Linear, hal::image::WrapMode::Clamp))
         .expect("Can't create sampler");
 
-    let (shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline) = {
+    let (_shadow_desc_pool, shadow_desc_set, shadow_renderpass, shadow_pipeline_layout, shadow_pipeline) = {
         let shadow_renderpass = {
             let depth_attachment = hal::pass::Attachment {
                 format: Some(shadow_depth_format),
@@ -792,6 +792,7 @@ unsafe {
                 .map(|b| b.expect("failure reading byte in compute shader spirv"))
                 .collect()
         };
+        #[allow(unused_unsafe)]
         unsafe {
             device_state.device.create_shader_module(&compute_shader_spirv).expect("failed to create compute shader module")
         }

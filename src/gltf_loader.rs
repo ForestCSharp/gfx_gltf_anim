@@ -410,7 +410,7 @@ impl GltfModel {
 
             //TODO: bind correct skeleton when rendering mesh
             if let Some(skeleton_index) = &mesh.skeleton_index {
-                if let Some(skeleton) = &mut self.skeletons.get(*skeleton_index) {
+                if let Some(_skeleton) = &mut self.skeletons.get(*skeleton_index) {
                     
                 }
             }
