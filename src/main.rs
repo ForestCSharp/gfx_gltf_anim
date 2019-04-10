@@ -775,7 +775,7 @@ unsafe {
         normal   : Vec4,
     }
 
-    let voxel_size = 8.0;
+    let voxel_size = 16.0;
     let voxel_dimensions : [u32;3] = [10,10,10];
     let total_voxels = voxel_dimensions.iter().product::<u32>() as usize;
 
@@ -1128,7 +1128,7 @@ unsafe {
         command_pool.reset();
 
         let frame: hal::SwapImageIndex = {
-            match swapchain.acquire_image(!0, hal::FrameSync::Semaphore(&mut acquisition_semaphore)) {
+            match swapchain.acquire_image(!0, Some(&acquisition_semaphore), None) {
                 Ok(i) => i,
                 Err(_) => {
                     needs_resize = true;
