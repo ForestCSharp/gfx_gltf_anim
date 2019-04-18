@@ -91,7 +91,7 @@ unsafe {
 	let features = adapter.physical_device.features();
     let limits = adapter.physical_device.limits();
 
-    println!("Limits: {:?}", limits);
+    //println!("Limits: {:?}", limits);
 
     for queue_family in adapter.queue_families.iter() {
         println!("{:?}", queue_family);
