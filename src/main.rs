@@ -89,8 +89,7 @@ unsafe {
 
 	//TODO: Query for specific features?
 	let features = adapter.physical_device.features();
-    let limits = adapter.physical_device.limits();
-
+    //let limits = adapter.physical_device.limits();
     //println!("Limits: {:?}", limits);
 
     for queue_family in adapter.queue_families.iter() {
@@ -892,7 +891,7 @@ unsafe {
         }
     }
 
-    let mut acquisition_semaphore = device_state.device.create_semaphore().unwrap();
+    let acquisition_semaphore = device_state.device.create_semaphore().unwrap();
 
     let mut frame_fence = device_state.device.create_fence(false).unwrap();
 
