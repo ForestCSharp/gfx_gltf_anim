@@ -102,11 +102,14 @@ unsafe {
         && surface.supports_queue_family(family)
     ).expect("Failed to find Graphics Queue");
 
-    //FIXME: fallback to graphics_queue_family (general queues) if these can't be found
-    let compute_queue_family  = adapter.queue_families.iter().find(|family| 
+    //try to get a dedicated compute queue (or fallback to general queue family)
+    let compute_queue_family  = match adapter.queue_families.iter().find(|family| 
         family.supports_compute() 
         && family.id() != general_queue_family.id() 
-    ).expect("Failed to find compute queue");
+    ) {
+        Some(queue_family) => queue_family,
+        None => general_queue_family,
+    };
 
 	let mut gpu = adapter.physical_device.open(&[(&general_queue_family, &[1.0; 1]), 
                                                  (&compute_queue_family,  &[1.0; 1])],
