@@ -755,9 +755,11 @@ unsafe {
         (new_pipeline, new_pipeline_layout)
     };
 
+    //Pipeline permuations
     let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false, false);
     let (wireframe_pipeline, wireframe_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true, false);
-    //TODO: add tessellation pipelines for toggle
+    let(tess_pipeline, tess_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false, true);
+    let (tess_wire_pipeline, tess_wire_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true, true);
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &device_state, &mut general_queue_group, &format, &depth_format);
@@ -1210,13 +1212,25 @@ unsafe {
 		{
             cmd_buffer.set_viewports(0, &[viewport.clone()]);
             cmd_buffer.set_scissors(0, &[viewport.rect]);
-            if draw_wireframe {
-                cmd_buffer.bind_graphics_pipeline(&wireframe_pipeline);
-                cmd_buffer.bind_graphics_descriptor_sets(&wireframe_pipeline_layout, 0, Some(&desc_set), &[]);
-            }
-            else {
-                cmd_buffer.bind_graphics_pipeline(&pipeline);
-                cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
+
+            //Bind correct pipeline and use correct layout
+            match (draw_wireframe, use_tessellation) {
+                (true, false) => {
+                    cmd_buffer.bind_graphics_pipeline(&wireframe_pipeline);
+                    cmd_buffer.bind_graphics_descriptor_sets(&wireframe_pipeline_layout, 0, Some(&desc_set), &[]);
+                },
+                (false, false) => {
+                    cmd_buffer.bind_graphics_pipeline(&pipeline);
+                    cmd_buffer.bind_graphics_descriptor_sets(&pipeline_layout, 0, Some(&desc_set), &[]);
+                },
+                (false, true) => {
+                    cmd_buffer.bind_graphics_pipeline(&tess_pipeline);
+                    cmd_buffer.bind_graphics_descriptor_sets(&tess_pipeline_layout, 0, Some(&desc_set), &[]);
+                },
+                (true, true) => {
+                    cmd_buffer.bind_graphics_pipeline(&tess_wire_pipeline);
+                    cmd_buffer.bind_graphics_descriptor_sets(&tess_wire_pipeline_layout, 0, Some(&desc_set), &[]);
+                }
             }
 
 			let mut encoder = cmd_buffer.begin_render_pass_inline(
@@ -1266,6 +1280,7 @@ unsafe {
 			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut general_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
             igCheckbox(CString::new("Use Tessellation").unwrap().as_ptr(), &mut use_tessellation);
             if use_tessellation {
+                if  general_uniform_struct.tess_level < 0.0 { general_uniform_struct.tess_level = 1.0; }
                 igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut general_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
             }
             else {
