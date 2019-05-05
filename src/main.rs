@@ -1127,7 +1127,7 @@ unsafe {
 
         let frame: hal::SwapImageIndex = {
             match swapchain.acquire_image(!0, Some(&acquisition_semaphore), None) {
-                Ok(i) => i,
+                Ok((i,_)) => i,
                 Err(_) => {
                     needs_resize = true;
                     continue;
