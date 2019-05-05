@@ -205,7 +205,8 @@ layout(std430, binding = 1) buffer indices_buffer
 layout(std140, binding = 2) uniform ComputeUniform 
 {
     vec4 offset;
-    float voxel_size;
+    float voxel_size, _b, _c, _d;
+    uvec3 voxel_dimensions;
 } settings;
 
 //	Simplex 3D Noise 
@@ -494,7 +495,7 @@ vec3 density_function_normal(vec3 position, float d)
 
 uint vertex_index(uvec3 pos) 
 {
-    return gl_NumWorkGroups.x * gl_NumWorkGroups.y * pos.z + gl_NumWorkGroups.x * pos.y + pos.x;
+    return settings.voxel_dimensions.x * settings.voxel_dimensions.y * pos.z + settings.voxel_dimensions.x * pos.y + pos.x;
 }
 
 float adapt(float f0, float f1)

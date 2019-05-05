@@ -52,7 +52,6 @@ impl ComputeContext {
 
         //Each Storage buffer gets its own layout binding
         for i in 0..buffers.len() {
-            
             //FIXME: check that it contains correct usage, not exact match
             let buffer_type = match buffers[i].usage {
                 hal::buffer::Usage::STORAGE => hal::pso::DescriptorType::StorageBuffer,

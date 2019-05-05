@@ -8,9 +8,11 @@ layout(binding = 0) uniform UniformStruct {
     mat4 proj_matrix;
     mat4 model_matrix;
     float time;
+    float pn_triangles_strength;
+    float tessellation_level;
 } ubo;
 
-#define MAX_BONE_COUNT 100
+#define MAX_BONE_COUNT 500
 
 layout(binding = 1) uniform SkeletonUniform {
     mat4 bones[MAX_BONE_COUNT];
@@ -72,11 +74,16 @@ void main() {
 
     mat4 ModelMatrix = ubo.model_matrix * Translation;
     
-    //TODO: handle
-    out_pos = vec4(in_pos, 1.0);
-    
-    //TODO: will need to do this in the tessellation eval shader if tessellated
-    //out_pos = (ubo.proj_matrix * ubo.view_matrix * ModelMatrix * skinMatrix * vec4(in_pos, 1.0));
+    //TODO: Pass as uniform?
+    bool use_tessellation = ubo.tessellation_level > 0.0;
+    if (use_tessellation)
+    {
+        out_pos = vec4(in_pos, 1.0);
+    }
+    else
+    {
+        out_pos = (ubo.proj_matrix * ubo.view_matrix * ModelMatrix * skinMatrix * vec4(in_pos, 1.0));
+    } 
 
     out_col = in_col;
     out_uv = in_uv;

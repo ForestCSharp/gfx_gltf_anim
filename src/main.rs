@@ -367,7 +367,7 @@ unsafe {
         0.01,
     );
 
-    let mut camera_uniform_struct = UniformStruct {
+    let mut general_uniform_struct = UniformStruct {
         view_matrix: view_matrix.into(),
         proj_matrix: perspective_matrix.into(),
         model_matrix: glm::Mat4::identity().into(),
@@ -377,7 +377,7 @@ unsafe {
     };
 
     //Uniform Buffer Setup
-	let mut uniform_gpu_buffer = GpuBuffer::new(&[camera_uniform_struct], 
+	let mut uniform_gpu_buffer = GpuBuffer::new(&[general_uniform_struct], 
 												hal::buffer::Usage::UNIFORM, 
 												hal::memory::Properties::CPU_VISIBLE, 
 												&device_state,
@@ -572,7 +572,7 @@ unsafe {
 
     let (mut frame_images, mut framebuffers) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
-    let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout, use_wireframe : bool| {
+    let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout, use_wireframe : bool, use_tessellation : bool| {
         let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
@@ -645,8 +645,8 @@ unsafe {
 
                 let shader_entries = hal::pso::GraphicsShaderSet {
                     vertex: vs_entry,
-                    hull: Some(tesc_entry),
-                    domain: Some(tese_entry),
+                    hull: if use_tessellation { Some(tesc_entry) } else { None },
+                    domain: if use_tessellation { Some(tese_entry) } else { None },
                     geometry: None,
                     fragment: Some(fs_entry),
                 };
@@ -658,7 +658,7 @@ unsafe {
 
                 let mut pipeline_desc = hal::pso::GraphicsPipelineDesc::new(
                     shader_entries,
-                    hal::Primitive::PatchList(3),
+                    if use_tessellation { hal::Primitive::PatchList(3) } else { hal::Primitive::TriangleList },
                     hal::pso::Rasterizer {
                         polygon_mode: if use_wireframe { hal::pso::PolygonMode::Line(1.0) } else { hal::pso::PolygonMode::Fill },
                         cull_face: hal::pso::Face::NONE,
@@ -755,8 +755,9 @@ unsafe {
         (new_pipeline, new_pipeline_layout)
     };
 
-    let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false);
-    let (wireframe_pipeline, wireframe_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true);
+    let (pipeline, pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, false, false);
+    let (wireframe_pipeline, wireframe_pipeline_layout) = create_pipeline(&device_state, &renderpass, &set_layout, true, false);
+    //TODO: add tessellation pipelines for toggle
 
 	//initialize cimgui
 	let mut cimgui_hal = CimguiHal::new( &device_state, &mut general_queue_group, &format, &depth_format);
@@ -834,7 +835,7 @@ unsafe {
                         &device_state
                     );
 
-                    let uniform_buffer = GpuBuffer::new_cpu_visible(
+                    let compute_uniform_buffer = GpuBuffer::new_cpu_visible(
                         &vec![
                             //Voxel Offset
                             (Vec4 { 
@@ -843,7 +844,8 @@ unsafe {
                                 z: (z * (voxel_dimensions[2] - 1) as i32) as f32 * voxel_size,
                                 w: 1.0,
                             },
-                            voxel_size)
+                            [voxel_size, 0.0, 0.0, 0.0],
+                            voxel_dimensions)
                         ],
                         hal::buffer::Usage::UNIFORM, 
                         &device_state
@@ -852,7 +854,7 @@ unsafe {
                     let compute_context = ComputeContext::new(
                         &shader_module,
                         voxel_dimensions,
-                        vec![vertices_buffer, indices_buffer, uniform_buffer],
+                        vec![vertices_buffer, indices_buffer, compute_uniform_buffer],
                         &device_state, 
                         &compute_queue_group.lock().unwrap()
                     );
@@ -861,14 +863,7 @@ unsafe {
                     compute_context.wait_for_completion(&device_state);
 
                     //FIXME: currently converting this data to gltf_model vertex data for quick testing
-                    let vertex_data : Vec<Vertex> = compute_context.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| {
-                        
-                        //TODO: Figure out why QEF blows up
-                        // let error = v.position.w;
-                        // if error > 0.0 {
-                        //     println!("Error: {}", error);
-                        // }
-                        
+                    let vertex_data : Vec<Vertex> = compute_context.buffers[0].get_data::<DCVert>(&device_state).iter().map(|v| {     
                         Vertex {
                         a_pos : [v.position.x, v.position.y, v.position.z],
                         a_col: [(x.abs() % 2) as f32 + 0.5, (y.abs() % 2) as f32 + 0.5, (z.abs() % 2) as f32 + 0.5, 1.0],
@@ -916,6 +911,7 @@ unsafe {
 	let mut mouse_button_states =  [ false, false, false, false, false];
 	let mut anim_speed : f32 = 1.0;
     let mut draw_wireframe = false;
+    let mut use_tessellation = false;
     let mut max_terrain_triangles : f32 = 100000000.0;
 
     while running {
@@ -1071,7 +1067,7 @@ unsafe {
             framebuffers = new_framebuffers;
 
             //Update Projection matrix (possible change in aspect ratio)
-            camera_uniform_struct.proj_matrix = glm::perspective_zo(
+            general_uniform_struct.proj_matrix = glm::perspective_zo(
                 extent.width as f32 / extent.height as f32,
                 degrees_to_radians(90.0f32),
                 100000.0,
@@ -1079,7 +1075,7 @@ unsafe {
             ).into();
             
             //flipping this to make y point up
-            camera_uniform_struct.proj_matrix[1][1] *= -1.0;
+            general_uniform_struct.proj_matrix[1][1] *= -1.0;
 
             needs_resize = false;
             //TODO: figure out why this fixes our Renderpass RenderArea/Framebuffer size discrepancy issue
@@ -1110,15 +1106,15 @@ unsafe {
         	cam_pos += move_vec;
 		}
 
-        camera_uniform_struct.view_matrix = glm::look_at(
+        general_uniform_struct.view_matrix = glm::look_at(
             &cam_pos,
             &(cam_pos + cam_forward),
             &cam_up
         ).into();
 
-        camera_uniform_struct.time = time as f32;
+        general_uniform_struct.time = time as f32;
 
-		uniform_gpu_buffer.reupload(&[camera_uniform_struct], &device_state, &mut general_queue_group);
+		uniform_gpu_buffer.reupload(&[general_uniform_struct], &device_state, &mut general_queue_group);
 
         //Animate Bones
         gltf_model.animate(0, 0, delta_time *  anim_speed as f64);
@@ -1262,13 +1258,19 @@ unsafe {
 		unsafe {
 			use std::ffi::CString;
 
-			igBegin(CString::new("Animation").unwrap().as_ptr(), &mut true, 0);
+			igBegin(CString::new("GFX-RS TESTING").unwrap().as_ptr(), &mut true, 0);
 			igText(CString::new("Drag the Slider to change anim speed").unwrap().as_ptr());
 			igSliderFloat(CString::new("Anim Speed").unwrap().as_ptr(), &mut anim_speed, 0.0f32, 15.0f32, std::ptr::null(), 2.0f32);
             igText(CString::new(format!("Terrain Triangle Count: {}", dc_mesh_indices_rendered / 3)).unwrap().as_ptr());
             igSliderFloat(CString::new("Terrain Triangle Cutoff").unwrap().as_ptr(), &mut max_terrain_triangles, 0.0, 100000000.0, std::ptr::null(), 6.0f32);
-			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut camera_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
-            igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut camera_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
+			igSliderFloat(CString::new("PN Triangles Strength").unwrap().as_ptr(), &mut general_uniform_struct.pn_triangles_strength, 0.0, 1.0, std::ptr::null(), 1.0f32);
+            igCheckbox(CString::new("Use Tessellation").unwrap().as_ptr(), &mut use_tessellation);
+            if use_tessellation {
+                igSliderFloat(CString::new("Tess Level").unwrap().as_ptr(), &mut general_uniform_struct.tess_level, 1.0, 8.0, std::ptr::null(), 1.0f32);
+            }
+            else {
+                general_uniform_struct.tess_level = -1.0;
+            }
             igCheckbox(CString::new("Wireframe").unwrap().as_ptr(), &mut draw_wireframe);
             igSliderFloat(CString::new("Shadow Bias").unwrap().as_ptr(), &mut shadow_uniform_struct.bias, 0.0, 0.015, std::ptr::null(), 1.0f32);
             igEnd();
