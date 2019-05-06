@@ -48,7 +48,7 @@ impl GltfModel {
 				}
 
 				match channel_reader.read_outputs().unwrap() {
-					gltf::animation::util::ReadOutputs::Translations(mut translations) => {
+					gltf::animation::util::ReadOutputs::Translations(translations) => {
 						
 						let mut translation_keyframes = Vec::new();
 						
@@ -61,7 +61,7 @@ impl GltfModel {
 							current_left_keyframe: 0,
 						}));
 					},
-					gltf::animation::util::ReadOutputs::Rotations(mut rotations) => {
+					gltf::animation::util::ReadOutputs::Rotations(rotations) => {
 						
 						let mut rotation_keyframes = Vec::new();
 
@@ -74,7 +74,7 @@ impl GltfModel {
 							current_left_keyframe: 0,
 						}));
 					},
-					gltf::animation::util::ReadOutputs::Scales(mut scales) => {
+					gltf::animation::util::ReadOutputs::Scales(scales) => {
 						
 						let mut scale_keyframes = Vec::new();
 						
@@ -400,7 +400,7 @@ impl GltfModel {
 	}
 
 	pub fn upload_bones(&mut self, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General>) {
-        for mut skeleton in &mut self.skeletons {
+        for skeleton in &mut self.skeletons {
 		    skeleton.gpu_buffer.reupload(&skeleton.bones, device_state, transfer_queue_group);
         }
 	}
