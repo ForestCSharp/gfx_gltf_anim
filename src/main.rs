@@ -35,7 +35,7 @@ use std::fs;
 use std::io::{Read};
 use std::collections::HashMap;
 
-use hal::{Instance, Device, PhysicalDevice, DescriptorPool, Surface, Swapchain, QueueFamily};
+use hal::{Instance, Device, PhysicalDevice, DescriptorPool, Surface, Swapchain, QueueFamily, Backend};
 
 mod gpu_buffer;
 use gpu_buffer::GpuBuffer;
@@ -468,7 +468,7 @@ unsafe {
             set: &desc_set,
             binding: 3,
             array_offset: 0,
-            descriptors: Some(hal::pso::Descriptor::CombinedImageSampler(&shadow_depth_view, hal::image::Layout::DepthStencilAttachmentOptimal, &shadow_sampler)),
+            descriptors: Some(hal::pso::Descriptor::CombinedImageSampler(&shadow_depth_view, hal::image::Layout::DepthStencilReadOnlyOptimal, &shadow_sampler)),
         }
     ]);
 
@@ -535,42 +535,47 @@ unsafe {
 
     let renderpass = create_renderpass(&device_state, &format, &depth_format);
 
-    let create_framebuffers = |device_state: &DeviceState, backbuffer: hal::Backbuffer<B>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<B as hal::Backend>::ImageView, renderpass: &<B as hal::Backend>::RenderPass| {
-        match backbuffer {
-            hal::Backbuffer::Images(images) => {
-                let pairs = images
-                    .into_iter()
-                    .map(|image| {
-                        let rtv = device_state.device.create_image_view(
-                            &image, 
-                            hal::image::ViewKind::D2, 
-                            *format, 
-                            hal::format::Swizzle::NO, 
-                            hal::image::SubresourceRange {
-                                aspects: hal::format::Aspects::COLOR,
-                                levels: 0..1,
-                                layers: 0..1,
-                            },
-                            )
-                            .unwrap();
-                            (image, rtv)
-                    })
-                    .collect::<Vec<_>>();
-                let fbos = pairs
-                    .iter()
-                    .map(|&(_, ref rtv)| {
-                        device_state.device
-                            .create_framebuffer(&renderpass, vec![rtv, &depth_view], *extent)
-                            .unwrap()
-                    })
-                    .collect();
-                    (pairs, fbos)
-            }
-            hal::Backbuffer::Framebuffer(fbo) => (Vec::new(), vec![fbo]),
-        }
+    let create_framebuffers = |device_state: &DeviceState, backbuffer: Vec<<B as Backend>::Image>, format: &hal::format::Format, extent: &hal::image::Extent, depth_view: &<B as hal::Backend>::ImageView, renderpass: &<B as hal::Backend>::RenderPass| {
+        let extent = hal::image::Extent {
+            width: extent.width as _,
+            height: extent.height as _,
+            depth: 1,
+        };
+        let pairs = backbuffer
+            .into_iter()
+            .map(|image| {
+                let rtv = device_state.device
+                    .create_image_view(
+                        &image,
+                        hal::image::ViewKind::D2,
+                        *format,
+                        hal::format::Swizzle::NO,
+                        hal::image::SubresourceRange {
+                            aspects: hal::format::Aspects::COLOR,
+                            levels: 0..1,
+                            layers: 0..1,
+                        },
+                    )
+                    .unwrap();
+                (image, rtv)
+            })
+            .collect::<Vec<_>>();
+        let fbos = pairs
+            .iter()
+            .map(|&(_, ref rtv)| {
+                device_state.device
+                    .create_framebuffer(
+                        renderpass,
+                        vec![rtv, &depth_view],
+                        extent,
+                    )
+                    .unwrap()
+            })
+            .collect();
+        (pairs, fbos)
     };
 
-    let (mut frame_images, mut framebuffers) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
+    let (mut frame_images, mut framebuffers) : (_, Vec<<B as Backend>::Framebuffer>) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
     let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout, use_wireframe : bool, use_tessellation : bool| {
         let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[]).expect("failed to create pipeline layout");
