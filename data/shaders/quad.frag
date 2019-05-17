@@ -77,6 +77,7 @@ void main() {
     float bias_factor = shadow_bias;
     float bias = max(bias_factor * (1.0 - dot(n, l)), bias_factor / 10.0);
     bool enablePCF = true;
+    //FIXME: turn shadow mapping back on
     //intensity = enablePCF ? filterPCF(in_shadow_coord / in_shadow_coord.w, bias) : textureProj(in_shadow_coord / in_shadow_coord.w, vec2(0.0), bias);
 
     const float ambient = 0.05;

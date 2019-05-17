@@ -358,6 +358,7 @@ impl GltfModel {
                 let mut right_key_time = channel.keyframes.get_time(right_key_index);
 
                 //FIXME: can get stuck for certain models/animations
+				//FIXME: weird rotational issues with Running.glb (not related to having 2 primitives)
 
                 while self.current_anim_time as f32 >= right_key_time || (self.current_anim_time as f32) < left_key_time {
                     left_key_index = (left_key_index + 1) % channel.keyframes.len();
