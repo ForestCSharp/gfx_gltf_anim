@@ -153,7 +153,6 @@ impl GltfModel {
 
             //skinning: build up skeleton
 			if has_mesh && is_skinned {
-
 				match node.skin() {
 					Some(skin) => {
                         let mut bones = Vec::new();
@@ -217,12 +216,15 @@ impl GltfModel {
 			match node.mesh() {
 				Some(gltf_mesh) => {
 
-					let mut vertices_vec = Vec::new();
-					let mut indices_vec = None;
-
 					for primitive in gltf_mesh.primitives() {
 
 						let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+
+						match reader.read_indices() {
+							Some(indices) => println!("Prim Num Indices: {}", indices.into_u32().count()),
+							None => println!("No Indices"),
+						}
+
 						let pos_iter = reader.read_positions().unwrap(); 
 						//TODO: Better error handling if no positions (return Err("Mesh requires positions"))
 
@@ -255,6 +257,7 @@ impl GltfModel {
 							None => {println!("NO WEIGHTS"); None},
 						};
 
+						let mut vertices_vec = Vec::new();
 						//Iterate over our positions
 						for pos in pos_iter {
 
@@ -314,12 +317,12 @@ impl GltfModel {
 						}
 
 						//Indices
-						indices_vec = reader.read_indices().map( |read_indices| {
+						let indices_vec = reader.read_indices().map( |read_indices| {
 							read_indices.into_u32().collect()
 						});
-					} 
 
-					meshes.push(Mesh::new(vertices_vec, indices_vec, skeleton_index, device_state, transfer_queue_group));
+						meshes.push(Mesh::new(vertices_vec, indices_vec, skeleton_index, device_state, transfer_queue_group));
+					} 
 				},
 				None => {},
 			}
@@ -369,7 +372,7 @@ impl GltfModel {
                 //Lerp Value of x from a to b = (x - a) / (b - a)
                 let mut lerp_value = (self.current_anim_time as f32 - left_key_time) / (right_key_time - left_key_time );
 
-                if lerp_value < 0.0 { lerp_value = 0.0; }
+				lerp_value = num::clamp(lerp_value, 0.0, 1.0);
 
                 match &mut channel.keyframes {
                     ChannelType::TranslationChannel(translations) => {
@@ -547,7 +550,12 @@ pub struct Mesh {
 impl Mesh {
     //TODO: replace vec arguments with slices
     pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, skeleton_index : Option<usize>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) -> Mesh {
-        Mesh {
+        
+		match &in_indices {
+			Some(in_indices) => println!("num indices: {}", in_indices.len()),
+			None => println!("No Index Buffer"),
+		}
+		Mesh {
             vertex_buffer  : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
             index_buffer   : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),
             skeleton_index : skeleton_index,

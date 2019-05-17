@@ -69,8 +69,8 @@ void main() {
     Translation[1][1] = 1;
     Translation[2][2] = 1;
     Translation[3][3] = 1;
-    Translation[3][0] = 1.0 * (gl_InstanceIndex / 10) - 10.0;
-    Translation[3][2] = -1.0 * mod(gl_InstanceIndex,10);
+    Translation[3][0] = 2.0 * (gl_InstanceIndex / 10) - 20.0;
+    Translation[3][2] = -2.0 * mod(gl_InstanceIndex,10);
 
     mat4 ModelMatrix = ubo.model_matrix * Translation;
     

@@ -127,7 +127,7 @@ unsafe {
     let mut command_pool = device_state.device.create_command_pool_typed::<hal::General>(&general_queue_group, hal::pool::CommandPoolCreateFlags::empty())
                             .expect("Can't create command pool");
 
-	let mut gltf_model = GltfModel::new("data/models/CesiumMan.gltf", &device_state, &mut general_queue_group);
+	let mut gltf_model = GltfModel::new("data/models/Running.glb", &device_state, &mut general_queue_group);
 
         //Depth Buffer Setup
     let create_depth_buffer = |device_state : &DeviceState, extent: &hal::image::Extent, sampled : bool| {
