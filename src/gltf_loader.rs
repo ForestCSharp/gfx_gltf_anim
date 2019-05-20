@@ -358,7 +358,6 @@ impl GltfModel {
                 let mut right_key_time = channel.keyframes.get_time(right_key_index);
 
                 //FIXME: can get stuck for certain models/animations
-				//FIXME: weird rotational issues with Running.glb (not related to having 2 primitives)
 
                 while self.current_anim_time as f32 >= right_key_time || (self.current_anim_time as f32) < left_key_time {
                     left_key_index = (left_key_index + 1) % channel.keyframes.len();
@@ -383,7 +382,11 @@ impl GltfModel {
                     },
                     ChannelType::RotationChannel(rotations) => {
                         let left_value  = glm::Quat{ coords: rotations[left_key_index].1.into() };
-                        let right_value = glm::Quat{ coords: rotations[right_key_index].1.into() };
+                        let mut right_value = glm::Quat{ coords: rotations[right_key_index].1.into() };
+						//if dot product is less than zero, need to flip sign to ensure shortest path lerp/slerp
+						if left_value.dot(&right_value) < 0.0 {
+							right_value = -right_value;
+						}
                         self.nodes[*node_index].rotation = glm::quat_slerp(&left_value, &right_value, lerp_value).as_vector().clone().into();
                     },
                     ChannelType::ScaleChannel(scales) => {
@@ -551,11 +554,6 @@ pub struct Mesh {
 impl Mesh {
     //TODO: replace vec arguments with slices
     pub fn new(in_vertices : Vec<Vertex>, in_indices : Option<Vec<u32>>, skeleton_index : Option<usize>, device_state : &gfx_helpers::DeviceState, transfer_queue_group : &mut hal::QueueGroup<B, hal::General> ) -> Mesh {
-        
-		match &in_indices {
-			Some(in_indices) => println!("num indices: {}", in_indices.len()),
-			None => println!("No Index Buffer"),
-		}
 		Mesh {
             vertex_buffer  : GpuBuffer::new(&in_vertices, hal::buffer::Usage::VERTEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group),
             index_buffer   : in_indices.map(|in_indices| GpuBuffer::new(&in_indices, hal::buffer::Usage::INDEX, hal::memory::Properties::DEVICE_LOCAL, device_state, transfer_queue_group)),

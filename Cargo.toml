@@ -19,7 +19,7 @@ image = "0.19"
 nalgebra-glm = "0.2"
 time = "0.1.40"
 glsl-to-spirv = "0.1"
-gltf = "0.11.2"
+gltf = "0.12"
 rand = "0.5.5"
 memoffset = "0.2.1"
 
