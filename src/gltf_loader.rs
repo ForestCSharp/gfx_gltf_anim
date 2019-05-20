@@ -220,11 +220,6 @@ impl GltfModel {
 
 						let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
 
-						match reader.read_indices() {
-							Some(indices) => println!("Prim Num Indices: {}", indices.into_u32().count()),
-							None => println!("No Indices"),
-						}
-
 						let pos_iter = reader.read_positions().unwrap(); 
 						//TODO: Better error handling if no positions (return Err("Mesh requires positions"))
 

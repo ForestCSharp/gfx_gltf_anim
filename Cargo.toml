@@ -15,20 +15,20 @@ metal = ["gfx-backend-metal"]
 cimgui = { git = "https://github.com/ForestCSharp/cimgui-rs.git" }
 num = "*"
 winit = "0.19"
-image = "0.19"
-nalgebra-glm = "0.2"
-time = "0.1.40"
+image = "0.21"
+nalgebra-glm = "0.4"
+time = "0.1.42"
 glsl-to-spirv = "0.1"
 gltf = "0.12"
-rand = "0.5.5"
-memoffset = "0.2.1"
+rand = "0.6.5"
+memoffset = "0.3"
 
 #Parallelism
 scoped_threadpool = "0.1.9"
 num_cpus = "1.10.0"
 
-log = "0.4.0"
-env_logger = "0.6.0"
+log = "0.4.6"
+env_logger = "0.6.1"
 
 gfx-hal = { git = "https://github.com/gfx-rs/gfx.git" }
 
