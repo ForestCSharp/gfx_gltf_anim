@@ -474,7 +474,7 @@ impl CimguiHal {
 		}
 	}
 
-	fn create_gfx_resources(device: &back::Device, color_format : &hal::format::Format, depth_format: &hal::format::Format) -> CimguiGfxData {
+	fn create_gfx_resources(device: &<B as Backend>::Device, color_format : &hal::format::Format, depth_format: &hal::format::Format) -> CimguiGfxData {
 		
 		//Descriptor Set
 		let desc_set_layout = unsafe { device.create_descriptor_set_layout( 

@@ -3,6 +3,8 @@
     allow(dead_code, unused_extern_crates, unused_imports)
 )]
 
+#[cfg(feature = "dx11")]
+extern crate gfx_backend_dx11 as back;
 #[cfg(feature = "dx12")]
 extern crate gfx_backend_dx12 as back;
 #[cfg(feature = "metal")]
@@ -54,7 +56,7 @@ mod compute;
 use compute::ComputeContext;
 
 
-#[cfg(any(feature = "vulkan", feature = "dx12", feature = "metal"))]
+#[cfg(any(feature = "vulkan", feature = "dx11", feature = "dx12", feature = "metal"))]
 fn main() {
 
     env_logger::Builder::from_default_env()
@@ -578,6 +580,10 @@ unsafe {
     let (mut frame_images, mut framebuffers) : (_, Vec<<B as Backend>::Framebuffer>) = create_framebuffers(&device_state, backbuffer, &format, &extent, &depth_view, &renderpass);
 
     let create_pipeline = |device_state: &DeviceState, renderpass: &<B as hal::Backend>::RenderPass, set_layout: &<B as hal::Backend>::DescriptorSetLayout, use_wireframe : bool, use_tessellation : bool| {
+        
+        //TODO: DX12 Doesn't play nice with tessellation at the moment
+        let use_tessellation = use_tessellation && !cfg!(feature = "dx12") && !cfg!(feature = "dx11");
+
         let new_pipeline_layout = device_state.device.create_pipeline_layout(Some(set_layout), &[]).expect("failed to create pipeline layout");
 
         let new_pipeline = {
@@ -591,24 +597,30 @@ unsafe {
                 device_state.device.create_shader_module(&spirv).unwrap()
             };
 
-            let tesc_module = {
+            let tesc_module = if use_tessellation {
                 let glsl = fs::read_to_string("data/shaders/pntriangles.tesc").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationControl)
                     .unwrap()
                     .bytes()
                     .map(|b| b.unwrap())
                     .collect();
-                device_state.device.create_shader_module(&spirv).unwrap()
+                Some(device_state.device.create_shader_module(&spirv).unwrap())
+            } 
+            else { 
+                None 
             };
 
-            let tese_module = {
+            let tese_module = if use_tessellation {
                 let glsl = fs::read_to_string("data/shaders/pntriangles.tese").unwrap();
                 let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationEvaluation)
                     .unwrap()
                     .bytes()
                     .map(|b| b.unwrap())
                     .collect();
-                device_state.device.create_shader_module(&spirv).unwrap()
+                Some(device_state.device.create_shader_module(&spirv).unwrap())
+            }
+            else {
+                None
             };
 
             let fs_module = {
@@ -635,23 +647,28 @@ unsafe {
                     },
                 );
 
-                let (tesc_entry, tese_entry) = (
-                    hal::pso::EntryPoint::<B> {
-                        entry: "main",
-                        module: &tesc_module,
-                        specialization: hal::pso::Specialization::default(),
-                    },
-                    hal::pso::EntryPoint::<B> {
-                        entry: "main",
-                        module: &tese_module,
-                        specialization: hal::pso::Specialization::default(),
-                    },
-                );
+                let tesc_entry = match &tesc_module {
+                    Some(tesc_module) => Some(hal::pso::EntryPoint::<B> {
+                            entry: "main",
+                            module: &tesc_module,
+                            specialization: hal::pso::Specialization::default(),
+                        }),
+                    None => None,
+                };
+
+                let tese_entry = match &tese_module {
+                    Some(tese_module) => Some(hal::pso::EntryPoint::<B> {
+                            entry: "main",
+                            module: &tese_module,
+                            specialization: hal::pso::Specialization::default(),
+                        }),
+                    None => None,
+                };
 
                 let shader_entries = hal::pso::GraphicsShaderSet {
                     vertex: vs_entry,
-                    hull: if use_tessellation { Some(tesc_entry) } else { None },
-                    domain: if use_tessellation { Some(tese_entry) } else { None },
+                    hull: tesc_entry,
+                    domain: tese_entry,
                     geometry: None,
                     fragment: Some(fs_entry),
                 };
@@ -751,9 +768,14 @@ unsafe {
 
             device_state.device.destroy_shader_module(vs_module);
             device_state.device.destroy_shader_module(fs_module);
-            device_state.device.destroy_shader_module(tesc_module);
-            device_state.device.destroy_shader_module(tese_module);
-
+            match tesc_module {
+                Some(tesc_module) => {device_state.device.destroy_shader_module(tesc_module)},
+                None => {},
+            }
+            match tese_module {
+                Some(tese_module) => {device_state.device.destroy_shader_module(tese_module)},
+                None => {},
+            }
             pipeline.unwrap()
         };
 

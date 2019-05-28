@@ -1,5 +1,7 @@
 use ::back;
 use ::hal;
+use ::hal::Backend;
+use ::B;
 use hal::PhysicalDevice;
 
 //TODO: handle multiple desired memory properties
@@ -19,6 +21,6 @@ pub fn get_memory_type( physical_device: &back::PhysicalDevice,
 }
 
 pub struct DeviceState {
-	pub device : back::Device,
+	pub device : <B as Backend>::Device,
 	pub physical_device : back::PhysicalDevice,
 }
