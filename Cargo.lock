@@ -203,7 +203,7 @@ dependencies = [
 [[package]]
 name = "cimgui"
 version = "0.1.0"
-source = "git+https://github.com/ForestCSharp/cimgui-rs.git#00b907176ff50db0cc780254821451f01759549e"
+source = "git+https://github.com/ForestCSharp/cimgui-rs.git#c11c2421a3cf0165b5758b017c9552c8c70460c3"
 dependencies = [
  "bindgen 0.42.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "cc 1.0.37 (registry+https://github.com/rust-lang/crates.io-index)",
