@@ -1265,7 +1265,7 @@ unsafe {
 				&framebuffers[frame as usize],
 				viewport.rect,
 				&[
-					hal::command::ClearValue::Color(hal::command::ClearColor::Float([0.2, 0.2, 0.2, 0.0,])),
+					hal::command::ClearValue::Color(hal::command::ClearColor::Sfloat([0.2, 0.2, 0.2, 0.0,])),
 					hal::command::ClearValue::DepthStencil(hal::command::ClearDepthStencil(0.0, 0))
 				],
 			);

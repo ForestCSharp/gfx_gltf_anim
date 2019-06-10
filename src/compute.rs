@@ -166,7 +166,7 @@ impl ComputeContext {
         //TODO: Don't allow dispatch if already dispatched and waiting for result
 
         unsafe {
-            queue.submit_nosemaphores(Some(&self.command_buffer), Some(&self.fence));
+            queue.submit_without_semaphores(Some(&self.command_buffer), Some(&self.fence));
         }
     }
 

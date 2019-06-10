@@ -118,7 +118,7 @@ impl GpuBuffer {
                 cmd_buffer.finish();
 
                 let mut transfer_fence = device_state.device.create_fence(false).unwrap();
-                transfer_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
+                transfer_queue_group.queues[0].submit_without_semaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
                 device_state.device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
                 device_state.device.destroy_command_pool(command_pool.into_raw());

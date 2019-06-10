@@ -190,7 +190,7 @@ impl CimguiHal {
 			cmd_buffer.finish();
 
 			let mut transfer_fence = device.create_fence(false).unwrap();
-        	transfer_queue_group.queues[0].submit_nosemaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
+        	transfer_queue_group.queues[0].submit_without_semaphores(Some(&cmd_buffer), Some(&mut transfer_fence));
         	device.wait_for_fence(&transfer_fence, !0).expect("Can't wait for fence");
 
 			device.destroy_command_pool(command_pool.into_raw());
@@ -390,7 +390,7 @@ impl CimguiHal {
                     framebuffer,
                     viewport.rect,
                     &[
-                        hal::command::ClearValue::Color(hal::command::ClearColor::Float([1.0, 0.2, 0.2, 1.0,]))
+                        hal::command::ClearValue::Color(hal::command::ClearColor::Sfloat([1.0, 0.2, 0.2, 1.0,]))
                     ],
                 );
 
