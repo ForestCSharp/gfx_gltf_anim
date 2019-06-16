@@ -547,20 +547,14 @@ impl CimguiHal {
         let new_pipeline = {
             let vs_module = {
                 let glsl = fs::read_to_string("data/shaders/imgui.vert").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex).unwrap();
+				let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                  unsafe { device.create_shader_module(&spirv).unwrap() }
             };
             let fs_module = {
                 let glsl = fs::read_to_string("data/shaders/imgui.frag").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Fragment)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Fragment).unwrap();
+				let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                  unsafe { device.create_shader_module(&spirv).unwrap() }
             };
 

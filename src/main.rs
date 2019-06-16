@@ -34,7 +34,6 @@ use std::sync::mpsc::channel;
 extern crate memoffset;
 
 use std::fs;
-use std::io::{Read};
 use std::collections::HashMap;
 
 use hal::{Instance, Device, PhysicalDevice, DescriptorPool, Surface, Swapchain, QueueFamily, Backend};
@@ -270,11 +269,9 @@ unsafe {
         let shadow_pipeline = {
             let vs_module = {
                 let glsl = fs::read_to_string("data/shaders/shadow.vert").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
+                    .unwrap();
+                let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                 device_state.device.create_shader_module(&spirv).unwrap()
             };
 
@@ -323,6 +320,7 @@ unsafe {
                     rate: hal::pso::VertexInputRate::Vertex,
                 });
 
+                //FIXME: getting STATUS_ILLEGAL_INSTRUCTION here?
                 pipeline_desc.attributes.push(hal::pso::AttributeDesc {
                     location: 0,
                     binding: 0,
@@ -589,21 +587,17 @@ unsafe {
         let new_pipeline = {
             let vs_module = {
                 let glsl = fs::read_to_string("data/shaders/quad.vert").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Vertex)
+                    .unwrap();
+                let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                 device_state.device.create_shader_module(&spirv).unwrap()
             };
 
             let tesc_module = if use_tessellation {
                 let glsl = fs::read_to_string("data/shaders/pntriangles.tesc").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationControl)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationControl)
+                    .unwrap();
+                let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                 Some(device_state.device.create_shader_module(&spirv).unwrap())
             } 
             else { 
@@ -612,11 +606,9 @@ unsafe {
 
             let tese_module = if use_tessellation {
                 let glsl = fs::read_to_string("data/shaders/pntriangles.tese").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationEvaluation)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::TessellationEvaluation)
+                    .unwrap();
+                let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                 Some(device_state.device.create_shader_module(&spirv).unwrap())
             }
             else {
@@ -625,11 +617,9 @@ unsafe {
 
             let fs_module = {
                 let glsl = fs::read_to_string("data/shaders/quad.frag").unwrap();
-                let spirv: Vec<u8> = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Fragment)
-                    .unwrap()
-                    .bytes()
-                    .map(|b| b.unwrap())
-                    .collect();
+                let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Fragment)
+                    .unwrap();
+                let spirv: Vec<u32> = hal::read_spirv(file).unwrap();
                 device_state.device.create_shader_module(&spirv).unwrap()
             };
 
@@ -816,13 +806,11 @@ unsafe {
 
     //TODO: glsl->spirv->shader module helper function in gfx_helpers
     let shader_module = {
-        let compute_shader_spirv : Vec<u8> = {
+        let compute_shader_spirv : Vec<u32> = {
             let glsl = fs::read_to_string("data/shaders/generate_vertices.comp").expect("failed to read compute shader code to string");
-            glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Compute)
-                .expect("failed to compile compute shader glsl to spirv")
-                .bytes()
-                .map(|b| b.expect("failure reading byte in compute shader spirv"))
-                .collect()
+            let file = glsl_to_spirv::compile(&glsl, glsl_to_spirv::ShaderType::Compute)
+                    .unwrap();
+            hal::read_spirv(file).unwrap()
         };
         #[allow(unused_unsafe)]
         unsafe {
@@ -1152,7 +1140,7 @@ unsafe {
 		gltf_model.upload_bones(&device_state, &mut general_queue_group);
         
         device_state.device.reset_fence(&frame_fence).unwrap();
-        command_pool.reset();
+        command_pool.reset(false);
 
         let frame: hal::SwapImageIndex = {
             match swapchain.acquire_image(!0, Some(&acquisition_semaphore), None) {
