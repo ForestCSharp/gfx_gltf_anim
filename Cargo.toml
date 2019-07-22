@@ -21,7 +21,7 @@ time = "0.1.42"
 glsl-to-spirv = "0.1"
 gltf = "0.12"
 rand = "0.6.5"
-memoffset = "0.3"
+memoffset = "0.5"
 
 #Parallelism
 scoped_threadpool = "0.1.9"
