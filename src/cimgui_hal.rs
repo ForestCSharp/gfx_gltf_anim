@@ -592,9 +592,9 @@ impl CimguiHal {
                     &new_pipeline_layout,
                     subpass,
                 );
-                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc(
-                    hal::pso::ColorMask::ALL,
-                    hal::pso::BlendState::On {
+                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc {
+                    mask: hal::pso::ColorMask::ALL,
+                    blend: Some(hal::pso::BlendState {
 						alpha:  hal::pso::BlendOp::Add {
 							src: hal::pso::Factor::OneMinusSrcAlpha,
 							dst: hal::pso::Factor::Zero,
@@ -603,8 +603,8 @@ impl CimguiHal {
 							src: hal::pso::Factor::SrcAlpha,
 							dst: hal::pso::Factor::OneMinusSrcAlpha,
 						}
-					}
-                ));
+					})
+				});
 
                 pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
                     binding: 0,
@@ -639,9 +639,9 @@ impl CimguiHal {
                     },
                 });
 
-                pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::Off;
+                pipeline_desc.depth_stencil.depth = None;
                 pipeline_desc.depth_stencil.depth_bounds = false;
-                pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
+                pipeline_desc.depth_stencil.stencil = None;
 
 				unsafe {
                 	device.create_graphics_pipeline(&pipeline_desc, None)

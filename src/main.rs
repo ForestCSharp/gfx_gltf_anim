@@ -309,10 +309,14 @@ unsafe {
                     &shadow_pipeline_layout,
                     subpass,
                 );
-                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc(
-                    hal::pso::ColorMask::ALL,
-                    hal::pso::BlendState::ALPHA,
-                ));
+                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc{
+                    mask: hal::pso::ColorMask::ALL,
+                    blend: Some(hal::pso::BlendState::ALPHA)
+                });
+                // (
+                //     ,
+                //     hal::pso::BlendState::ALPHA,
+                // ));
 
                 pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
                     binding: 0,
@@ -330,12 +334,12 @@ unsafe {
                     },
                 });
 
-                pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::On {
+                pipeline_desc.depth_stencil.depth = Some(hal::pso::DepthTest {
                     fun: hal::pso::Comparison::GreaterEqual,
                     write: true,
-                };
+                });
                 pipeline_desc.depth_stencil.depth_bounds = false;
-                pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
+                pipeline_desc.depth_stencil.stencil = None;
 
                 device_state.device.create_graphics_pipeline(&pipeline_desc, None)
             };
@@ -672,7 +676,7 @@ unsafe {
                     shader_entries,
                     if use_tessellation { hal::Primitive::PatchList(3) } else { hal::Primitive::TriangleList },
                     hal::pso::Rasterizer {
-                        polygon_mode: if use_wireframe { hal::pso::PolygonMode::Line(1.0) } else { hal::pso::PolygonMode::Fill },
+                        polygon_mode: if use_wireframe { hal::pso::PolygonMode::Line(hal::pso::State::Static(1.0)) } else { hal::pso::PolygonMode::Fill },
                         cull_face: hal::pso::Face::NONE,
                         front_face: hal::pso::FrontFace::CounterClockwise,
                         depth_clamping: false,
@@ -682,10 +686,10 @@ unsafe {
                     &new_pipeline_layout,
                     subpass,
                 );
-                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc(
-                    hal::pso::ColorMask::ALL,
-                    hal::pso::BlendState::ALPHA,
-                ));
+                pipeline_desc.blender.targets.push(hal::pso::ColorBlendDesc{
+                    mask: hal::pso::ColorMask::ALL,
+                    blend: Some(hal::pso::BlendState::ALPHA)
+                });
                 pipeline_desc.vertex_buffers.push(hal::pso::VertexBufferDesc {
                     binding: 0,
                     stride: std::mem::size_of::<Vertex>() as u32,
@@ -746,12 +750,12 @@ unsafe {
                     },
                 });
 
-                pipeline_desc.depth_stencil.depth = hal::pso::DepthTest::On {
+                pipeline_desc.depth_stencil.depth = Some(hal::pso::DepthTest {
                     fun: hal::pso::Comparison::GreaterEqual,
                     write: true,
-                };
+                });
                 pipeline_desc.depth_stencil.depth_bounds = false;
-                pipeline_desc.depth_stencil.stencil = hal::pso::StencilTest::Off;
+                pipeline_desc.depth_stencil.stencil = None;
 
                 device_state.device.create_graphics_pipeline(&pipeline_desc, None)
             };
